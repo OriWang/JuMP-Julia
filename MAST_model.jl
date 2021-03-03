@@ -231,7 +231,106 @@ if En_DR
 
     # DR Constraints
     #   KKT Constraints
-    
-    
+    @constraint(mast, KKT_pgp[p in UNode, t in Time],
+        lambda_pg_var[p,t] - mu_gp_var[p,t]  == -1);
+    @constraint(mast, KKT_fdin[p in UNode, t in Time],
+        - lambda_pg_var[p,t] - mu_gn_var[p,t]  == alpha[p]);    # ERROR # LINK: Line 190
+    @constraint(mast, KKT_pbat[p in UNode, t in Time],
+        -lambda_pb_var[p,t] - lambda_e_var[p,t] - mu_pl_var[p,t] + mu_pu_var[p,t] == 0);
+    @constraint(mast, KKT_ppv[p in UNode, t in Time],
+        lambda_pg_var[p,t] + lambda_pv_var[p,t] - mu_pv_var[p,t] == 0);
+    @constraint(mast, KKT_pspill[p in UNode, t in Time],
+        lambda_pv_var[p,t] - mu_sp_var[p,t] == 0);
+    @constraint(mast, KKT_bald[p in UNode, t in Time],
+        -lambda_pg_var[p,t] + lambda_pb_var[p,t] - mu_pb_var[p,t] == 0);
+    @constraint(mast, KKT_ebat[p in UNode, t in 1:(T-1)],
+        lambda_e_var[p,t] 
+        - Bat_eff[p] * lambda_e_var[p,t] 
+        - mu_el_var[p,t] + mu_eu_var[p,t]
+        == 0
+    );
 
+    # System equality constraints
+    @constraint(mast, Grid_bus_bal[p in UNode, t in Time],
+        Pwr_pgp_var[p,t] + Pwr_pv_var[p,t] - Pwr_pgn_var[p,t] - Pwr_bal_var[p,t] == 0);
+    @constraint(mast, Load_bus_bal[p in UNode, t in Time],
+        Pwr_bal_var[p,t] - Pwr_bat_var[p,t] == Psm_Demand[p,t]);
+    @constraint(mast, PV_bus_bal[p in UNode, t in Time],
+        Pwr_pv_var[p,t] + Pwr_sp_var[p,t] == PV_trace_DR[p,t]);     # ERROR #LINK line 184
+    @constraint(mast, Battery_SOC[p in UNode, t in 2:T],
+            Engy_bat_var[p,t] 
+            - Bat_eff[p] * Engy_bat_var[p,t-1] 
+            - Pwr_bat_var[p,t] 
+            == 0
+    );
+    @constraint(mast, Battery_SOC_Initial[p in UNode],
+            Engy_bat_var[p,1] 
+            - Bat_eff[p] * Engy_bat_ini[p] 
+            - Pwr_bat_var[p,1]  
+            == 0 
+    );
+
+    # Inequality Constraints
+    # Orthogonal Constraints
+    # Prosumer grid power intake
+    @constraint(mast, mu_gp_perp_pgp_A[p in UNode, t in Time],
+            Pwr_pgp_var[p,t] <= M_gp*b_gp_var[p,t]);
+    @constraint(mast, mu_gp_perp_pgp_B[p in UNode, t in Time],
+            mu_gp_var[p,t] <= M_gp * (1 - b_gp_var[p,t]) );
+
+    # Prosumer feeding power
+    @constraint(mast, mu_gn_perp_pgn_A[p in UNode, t in Time],
+            Pwr_pgn_var[p,t] <= M_gn*b_gn_var[p,t]);
+    @constraint(mast, mu_gn_perp_pgn_B[p in UNode, t in Time],
+            mu_gn_var[p,t] <= M_gn * (1 - b_gn_var[p,t]) );
+
+    # Prosumer battery and load power
+    @constraint(mast, mu_pb_perp_bal_A[p in UNode, t in Time],
+            Pwr_bal_var[p,t] <= M_bal*b_bal_var[p,t]);
+    @constraint(mast, mu_pb_perp_bal_B[p in UNode, t in Time],
+            mu_pb_var[p,t] <= M_bal * (1 - b_bal_var[p,t]) );
+
+    # Prosumer PV power
+    @constraint(mast, mu_pv_perp_ppv_A[p in UNode, t in Time],
+            Pwr_pv_var[p,t] <= M_pv*b_pv_var[p,t]);
+    @constraint(mast, mu_pv_perp_ppv_B[p in UNode, t in Time],
+            mu_pv_var[p,t] <= M_pv * (1 - b_pv_var[p,t]) );
+
+    # Prosumer PV-spilled
+    @constraint(mast, mu_sp_perp_psp_A[p in UNode, t in Time],
+            Pwr_sp_var[p,t] <= M_sp*b_sp_var[p,t]);
+    @constraint(mast, mu_sp_perp_psp_B[p in UNode, t in Time],
+            mu_sp_var[p,t] <= M_sp * (1 - b_sp_var[p,t]) );
+
+    # Battery discharge limit
+    @constraint(mast, mu_pl_perp_pb_A[p in UNode, t in Time],
+            Pwr_bat_var[p,t] <= M_pl*b_pl_var[p,t]);
+    @constraint(mast, mu_pl_perp_pb_B[p in UNode, t in Time],
+            mu_pl_var[p,t] <= M_pl * (1 - b_pl_var[p,t]) );
+    @constraint(mast, mu_pl_perp_pb_C[p in UNode, t in Time],
+            Pwr_bat_var[p,t] >= Max_dchrg_rate_bat[p] );
+
+    # Battery charge limit
+    @constraint(mast, mu_pu_perp_pb_A[p in UNode, t in Time],
+            Pwr_bat_var[p,t] >= M_pu*b_pu_var[p,t]);
+    @constraint(mast, mu_pu_perp_pb_B[p in UNode, t in Time],
+            mu_pu_var[p,t] <= M_pu * (1 - b_pu_var[p,t]) );
+    @constraint(mast, mu_pu_perp_pb_C[p in UNode, t in Time],
+            Pwr_bat_var[p,t] <= Max_chrg_rate_bat[p] );
+
+    # Battery lower SOC limit
+    @constraint(mast, mu_el_perp_eb_A[p in UNode, t in Time],
+            Engy_bat_var[p,t] <= M_el*b_el_var[p,t]);
+    @constraint(mast, mu_el_perp_eb_B[p in UNode, t in Time],
+            mu_el_var[p,t] <= M_el * (1 - b_el_var[p,t]) );
+    @constraint(mast, mu_el_perp_eb_C[p in UNode, t in Time],
+            Engy_bat_var[p,t] >= Min_SOC_bat[p] );
+
+    # Battery charge limit
+    @constraint(mast, mu_eu_perp_eb_A[p in UNode, t in Time],
+            Engy_bat_var[p,t] >= M_eu*b_eu_var[p,t]);
+    @constraint(mast, mu_eu_perp_eb_B[p in UNode, t in Time],
+            mu_eu_var[p,t] <= M_eu * (1 - b_eu_var[p,t]) );
+    @constraint(mast, mu_eu_perp_eb_C[p in UNode, t in Time],
+            Engy_bat_var[p,t] <= Max_SOC_bat[p] );
 end
