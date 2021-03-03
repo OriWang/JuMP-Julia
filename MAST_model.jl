@@ -167,4 +167,71 @@ if En_Uty_Strg
     )
 end
 
-##
+
+## Demand Response
+if En_DR
+    # Demand response parameters
+    M_gp = 1e6;
+    M_gn = 1e6;
+    M_bal = 1e6;
+    M_pv = 1e6;
+    M_sp = 1e6;
+    M_pl = 1e6;
+    M_pu = -1e6;
+    M_el = 1e6;
+    M_eu = -1e6;
+    # TODO: Need to replace with real data
+    # PV_trace_DR{UNode,Time} >= 0;
+    Max_chrg_rate_bat = bus_df[11, 1];      # Maximum Charge Rate (MW/h)
+    Max_dchrg_rate_bat= bus_df[12, 1];      # Maximum Discharge Rate (MW/h)       
+    Min_SOC_bat = bus_df[10, 1];            # Minimum Battery Capacity (MWh)
+    Max_SOC_bat = bus_df[9, 1];             # Maximum Battery Capacity (MWh)
+    Bat_eff = bus_df[13, 1] / 100;          # Battery Efficiency (0 ~ 1)
+    # alpha{UNode} >= 0;       # TODO: What's alpha?
+
+    # Demand response initial conditions
+    # TODO: replace with real data
+    Engy_bat_ini = zeros(bus_num);
+
+    # Demand response decision variables
+    @variable(mast, Pwr_pgp_var[UNode, Time] >= 0);
+    @variable(mast, Pwr_pgn_var[UNode, Time] >= 0);
+    @variable(mast, Pwr_bal_var[UNode, Time] >= 0);
+    @variable(mast, Pwr_pv_var[UNode, Time] >= 0);
+    @variable(mast, Pwr_sp_var[UNode, Time] >= 0);
+    @variable(mast, Engy_bat_var[UNode, Time] >= 0);
+    @variable(mast, Pwr_bat_var[UNode, Time]);
+
+    # Slackness Variables
+    # Dual Variable for equality constraints
+    @variable(mast, lambda_pg_var[UNode,Time]);
+    @variable(mast, lambda_pb_var[UNode,Time]);
+    @variable(mast, lambda_pv_var[UNode,Time]);
+    @variable(mast, lambda_e_var[UNode,Time]);
+    # Dual Variable for inequality constraints
+    @variable(mast, mu_gp_var[UNode,Time] >= 0);
+    @variable(mast, mu_gn_var[UNode,Time] >= 0);
+    @variable(mast, mu_pb_var[UNode,Time] >= 0);
+    @variable(mast, mu_pl_var[UNode,Time] >= 0);
+    @variable(mast, mu_pu_var[UNode,Time] >= 0);
+    @variable(mast, mu_el_var[UNode,Time] >= 0);
+    @variable(mast, mu_eu_var[UNode,Time] >= 0);
+    @variable(mast, mu_pv_var[UNode,Time] >= 0);
+    @variable(mast, mu_sp_var[UNode,Time] >= 0);
+    # Orthognal maintaining Variables
+    @variable(mast, b_gp_var[UNode,Time], Bin);
+    @variable(mast, b_gn_var[UNode,Time], Bin);
+    @variable(mast, b_bal_var[UNode,Time], Bin);
+    @variable(mast, b_pv_var[UNode,Time], Bin);
+    @variable(mast, b_sp_var[UNode,Time], Bin);
+    @variable(mast, b_pl_var[UNode,Time], Bin);
+    @variable(mast, b_pu_var[UNode,Time], Bin);
+    @variable(mast, b_el_var[UNode,Time], Bin);
+    @variable(mast, b_eu_var[UNode,Time], Bin);
+
+    # DR Constraints
+    #   KKT Constraints
+    
+    
+
+end
