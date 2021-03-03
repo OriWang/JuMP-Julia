@@ -12,18 +12,25 @@ utility_storage_df = DataFrame(XLSX.readtable(data_path, "Utility Storage Data")
 using JuMP, GLPK, LinearAlgebra, DataFrames
 
 # Default Parameters
-# En_Uty_Strg = false;
-# En_DR = false;
-# En_DR_PV = true;
-# En_DR_Strg = true;
-En_Uty_Strg = true;
-En_DR = true;
-En_DR_PV = true;
-En_DR_Strg = true;
+# en_Uty_Strg = false;
+# en_DR = false;
+# en_DR_PV = true;
+# en_DR_Strg = true;
+en_Uty_Strg = true;
+en_DR = true;
+en_DR_PV = true;
+en_DR_Strg = true;
+en_Type2 = count(i -> i == 2, generator_df[18, 1]) >= 1;
+en_Type3 = true; #count(i -> i == 3, generator_df[18, 1]) >= 1;
+# set to true temporary to test all code.
+
 
 # Set declaration
 gen_num = length(generator_df[1, 1]);
 UGen = 1:gen_num;
+G_Syn = 1:gen_num;      # TODO: Need to change G_Syn as a subset of UGen
+G_T1 = findall(i -> i==1, generator_df[18, 1]);     # Find the indices of all type 1 generators
+
 bus_num = length(bus_df[1, 1]);
 UNode = 1:bus_num;
 branch_num = length(branch_df[1, 1]);
@@ -55,7 +62,12 @@ MDT = generator_df[17, 1];      # MDT
 Units = generator_df[3, 1];     # Number of units
 
 # Generator initial conditions
-# TODO: Did not find in excel file
+# TODO: Did not find in excel file, use placeholders instead.
+Status_ini = zeros(gen_num);
+Pwr_Gen_ini = zeros(gen_num);
+MUT_ini = zeros(gen_num, T);
+MDT_ini = zeros(gen_num, T);
+
 
 # Interconnector parameter
 ThrmLim = branch_df[8, 1];      # Thermal limit (MVA)
@@ -95,7 +107,7 @@ total_cost = sum(
 @objective(mast, Min, total_cost)
 
 # Power balance constraint
-if En_Uty_Strg
+if en_Uty_Strg
     # Utility Storage sets and parameters
     utility_num = length(utility_storage_df[1, 1]);
     UStorage = 1:utility_num;
@@ -134,8 +146,88 @@ else
 end
 
 
+## Generator Constraints, Stable Limit
+# Syn Generators
+@constraint(mast, Gen_max_pwr[g in G_Syn, t in Time],
+        Pwr_Gen_var[g,t] <= Max_pwr[g] * Status_var[g,t]);
+@constraint(mast, Gen_min_pwr[g in G_Syn, t in Time], 
+        Min_pwr[g]*Status_var[g,t] <= Pwr_Gen_var[g,t]);
+
+# Integer variable linking Constraint
+@constraint(mast, On_Off[g in G_Syn, t in 2:T], 
+        S_Up_var[g,t] - S_Down_var[g,t] 
+        == Status_var[g,t] - Status_var[g,t-1]
+);
+@constraint(mast, On_Off_initial[g in G_Syn], 
+        S_Up_var[g,1] - S_Down_var[g,1] 
+        == Status_var[g,1] - Status_ini[g]
+);
+
+# Generator Ramping Constraints, using (a ==> b) <=> (!a || b)
+@constraint(mast, ramp_up[g in G_Syn, t in 2:T], 
+       Ramp_up[g] >= Max_pwr[g] || Pwr_Gen_var[g,t] - Pwr_Gen_var[g,t-1] <= Status_var[g,t]*Ramp_up[g]);        # ERROR: Cannot use ||
+@constraint(mast, ramp_up_initial[g in G_Syn], 
+       Ramp_up[g] >= Max_pwr[g] || Pwr_Gen_var[g,1] - Pwr_Gen_ini[g] <= Status_var[g,1]*Ramp_up[g]);
+@constraint(mast, ramp_down[g in G_Syn, t in 2:T], 
+       Ramp_down[g] >= Max_pwr[g] || Pwr_Gen_var[g,t-1] - Pwr_Gen_var[g,t] <= Status_var[g,t-1]*Ramp_down[g]);
+@constraint(mast, ramp_down_initial[g in G_Syn], 
+       Ramp_down[g] >= Max_pwr[g] || Pwr_Gen_ini[g] - Pwr_Gen_var[g,1] <= Status_ini[g]*Ramp_down[g]);
+
+# Generator Minimum Up/Down Time Constraints
+@constraint(mast, min_up_Time[g in G_Syn, t in MUT[g]:T], 
+       MUT[g] <= 1 || Status_var[g,t] >= sum(S_Up_var[g, t-t1] for t1 in 0:MUT[g]-1));
+@constraint(mast, min_up_Time_ini[g in G_Syn, t in 1:(MUT[g]-1)], 
+       MUT[g] <= 1 || Status_var[g,t] >= sum(S_Up_var[g,t-t1] for t1 in 0:t-1) + MUT_ini[g,t]);
+
+@constraint(mast, min_down_Time[g in G_Syn, t in MDT[g]:T], 
+       MDT[g] <= 1 || Status_var[g,t] <= Units[g] - sum(S_Down_var[g,t-t1] for t1 in 0:MDT[g]-1));
+@constraint(mast, min_down_Time_ini[g in G_Syn, t in 1:MDT[g]-1], 
+       MDT[g] <= 1 || Status_var[g,t]\n <= Units[g] - sum(S_Down_var[g,t-t1] for t1 in 0:t-1) - MDT_ini[g,t]);
+
+# Maximum limit on ON units
+@constraint(mast, max_ONunits[g in UGen, t in Time],
+       Status_var[g,t] <= Units[g]);
+
+
+## Interconnect constraints
+# Thermal limits
+@constraint(mast, thermal_limit_ub[l in ULine, t in Time],
+        Pwr_line_var[l,t] <= ThrmLim[l]);
+@constraint(mast, thermal_limit_lb[l in ULine, t in Time], 
+        -ThrmLim[l] <= Pwr_line_var[l,t]);
+
+# AC line angle stability
+@constraint(mast, angle_limit[l in ULine, t in Time], 
+        Pwr_line_var[l,t] == Susceptance[l] * (
+            sum(Angle_line_var[n1,t] for (l,n1) in Line_end1_Node_links)
+            - sum(Angle_line_var[n2,t] for (l,n2) in Line_end2_Node_links )
+            )
+);
+
+
+## Type2 (PV and Wind) generator additional constraints
+if en_Type2
+    # RES generator parameters
+    # Type2 Generators Sets
+    G_T2  = findall(i -> i == 2, generator_df[18, 1]);
+
+    # Type2 Generators Parameters
+    Resource_trace_T2 = 200 * ones(length(G_T2), T);     # matrix_generator_x_time[G_T2, Time]    # TODO: replace the placeholder
+
+    # RES constraints
+    # Type2 Power Limit
+    @constraint(mast, Resource_availability_T2[g in G_T2, t in Time],
+                Pwr_Gen_var[g,t] <= Status_var[g,t] * Resource_trace_T2[g,t]);
+    @constraint(mast, G_T2_min_pwr[g in G_T2, t in Time], 
+                Status_var[g,t] * Min_pwr[g] <= Pwr_Gen_var[g,t]);
+end
+
+
+
+
+
 ## Utility Storage Constrints
-if En_Uty_Strg
+if en_Uty_Strg
     # Utility Storage Energy Balance Constraint
     @constraint(mast, Storage_energy_balance[s in UStorage, t in 2:T],
                 Enrg_Strg_var[s, t]
@@ -169,7 +261,7 @@ end
 
 
 ## Demand Response
-if En_DR
+if en_DR
     # Demand response parameters
     M_gp = 1e6;
     M_gn = 1e6;
