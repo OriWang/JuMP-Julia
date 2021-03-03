@@ -24,49 +24,52 @@ line_num = 2;
 f_max = [100, 1000];
 
 # In this cell we create function solve_ed, which solves the economic dispatch problem for a given set of input parameters.
-function solve_ed(g_max, g_min, c_g, c_w, d, w_f, f_max)
+# function solve_ed(g_max, g_min, c_g, c_w, d, w_f, f_max)
     #Define the economic dispatch (ED) model
-    ed = Model(GLPK.Optimizer)
+ed = Model(GLPK.Optimizer)
 
-    # Extract parameters
-    g_num = length(g_max)
-    w_num = length(w_f)
-    
-    # Define decision variables    
-    @variable(ed, 0 <= g[i = 1:g_num] <= g_max[i]) # power output of generators
-    @variable(ed, 0 <= w[i = 1:w_num] <= w_f[i]) # wind power injection
+# Extract parameters
+g_num = length(g_max)
+w_num = length(w_f)
 
-    # Define the objective function
-    @objective(ed, Min, dot(c_g, g) + dot(c_w, w))
-
-    # Define the constraint on the maximum and minimum power output of each generator
-    @constraint(ed, [i = 1:g_num], g[i] <= g_max[i]) #maximum
-    @constraint(ed, [i = 1:g_num], g[i] >= g_min[i]) #minimum
-
-    # Define the constraint on the wind power injection
-    @constraint(ed, [i = 1:w_num], w[i] <= w_f[i])
-
-    # Define the constraint on maximum power on each line
-    @variable(ed, bus_out[i = 1:3])
-    @constraint(ed, bus_out[1] == w[1])
-    @constraint(ed, bus_out[2] == bus_out[1] * η[1] + g[1] + w[2])
-    @constraint(ed, bus_out[3] == bus_out[2] * η[2] + g[2])
-    @constraint(ed, [i = 1:2], bus_out[i] <= f_max[i])
+# Define decision variables    
+@variable(ed, 0 <= g[i = 1:g_num] <= g_max[i]) # power output of generators
+@variable(ed, 0 <= w[i = 1:w_num] <= w_f[i]) # wind power injection
 
 
-    # Define the power balance constraint
-    # @constraint(ed, sum(g) + sum(w) == d)
-    @constraint(ed, bus_out[3] == d)
+# Define the objective function
+@objective(ed, Min, dot(c_g, g) + dot(c_w, w))
 
-    # Solve statement
-    optimize!(ed)
-    
-    # return the optimal value of the objective function and its minimizers
-    return value.(g), value.(w), w_f - value.(w), objective_value(ed)
-end
+# Define the constraint on the maximum and minimum power output of each generator
+@constraint(ed, con[i = 1:g_num], g[i] <= g_max[i]) #maximum
+@constraint(ed, [i = 1:g_num], g[i] >= g_min[i]) #minimum
+
+# Define the constraint on the wind power injection
+@constraint(ed, [i = 1:w_num], w[i] <= w_f[i])
+
+# Define the constraint on maximum power on each line
+@variable(ed, bus_out[i = 1:3])
+@constraint(ed, bus_out[1] == w[1])
+@constraint(ed, bus_out[2] == bus_out[1] * η[1] + g[1] + w[2])
+@constraint(ed, bus_out[3] == bus_out[2] * η[2] + g[2])
+@constraint(ed, [i = 1:2], bus_out[i] <= f_max[i])
+
+
+
+
+# Define the power balance constraint
+# @constraint(ed, sum(g) + sum(w) == d)
+@constraint(ed, power_balance, bus_out[3] == d)
+
+# Solve statement
+optimize!(ed)
+
+# return the optimal value of the objective function and its minimizers
+# return value.(g), value.(w), w_f - value.(w), objective_value(ed)
+# end
 
 # Solve the economic dispatch problem
-(g_opt, w_opt, ws_opt, obj) = solve_ed(g_max, g_min, c_g, c_w, d, w_f, f_max);
+(g_opt, w_opt, ws_opt, obj) = (value.(g), value.(w), w_f - value.(w), objective_value(ed))
 
 println("\n")
 println("Dispatch of Generators: $(g_opt) MW")
