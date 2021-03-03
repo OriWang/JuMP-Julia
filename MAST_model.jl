@@ -3,7 +3,7 @@ using DataFrames
 using XLSX
 
 data_path = joinpath(@__DIR__, "Test1.xlsx");
-generator_df = DataFrame(XLSX.readtable(data_path, "Generator Data"))
+generator_df = DataFrame(XLSX.readtable(data_path, "Generator Data"));
 bus_df = DataFrame(XLSX.readtable(data_path, "Bus Data"))
 branch_df = DataFrame(XLSX.readtable(data_path, "Branch Data"))
 utility_storage_df = DataFrame(XLSX.readtable(data_path, "Utility Storage Data"))
@@ -35,6 +35,7 @@ bus_num = length(bus_df[1, 1]);
 UNode = 1:bus_num;
 branch_num = length(branch_df[1, 1]);
 ULine = 1:branch_num;
+URegion = 1:4;       # TODO: What is URegion?
 
 
 T = 24;     # ? Not sure
@@ -43,8 +44,11 @@ Time = 1:T;
 
 # Cross set generation
 Gen_Node_links  = [(g, n) for g in UGen for n in UNode];
+Gen_Region_links = [(g, r) for g in UGen for r in URegion];
+GenT1_Region_links = [(g1, r) for g1 in G_T1 for r in URegion];
 Line_end1_Node_links = [(l, n) for l in ULine for n in UNode];
 Line_end2_Node_links = [(l, n) for l in ULine for n in UNode];
+Node_Region_links = [(n, r) for n in UNode for r in URegion];
 
 # Generator cost
 C_Fix = generator_df[6, 1];     # Fixed cost
@@ -220,6 +224,62 @@ if en_Type2
                 Pwr_Gen_var[g,t] <= Status_var[g,t] * Resource_trace_T2[g,t]);
     @constraint(mast, G_T2_min_pwr[g in G_T2, t in Time], 
                 Status_var[g,t] * Min_pwr[g] <= Pwr_Gen_var[g,t]);
+end
+
+
+## Type3 (CSP) generator additional constraints
+if en_Type3
+    # CSP generator parameters
+    # Type3 Generators Sets
+    G_T3 = [1, 2];   # findall(i -> i==3, generator_df[18, 1]);         # TODO: Relace with real index later
+
+    # Type3 Generators Cross Sets
+    GenT3_Region_links = [(g3, r) for g3 in G_T3 for r in URegion]
+
+    # Type3 Generators Parameters
+    Resource_trace_T3 = 20 * randn(length(G_T3), T);           # matrix_generator_x_time[G_T3, Time]    # TODO: replace the placeholder
+    Enrg_TES_ini = zeros(length(G_T3));                        # TODO: replace the placeholder
+    TES_eff = generator_df[24, 1][G_T3] / 100;                 # TES Efficiency (%)
+    Min_SOC_TES = generator_df[23, 1][G_T3];                   # Minimum TES Limit (MWh) 
+    Max_SOC_TES = generator_df[22, 1][G_T3];                   # Maximum TES Capacity (MWh)
+
+    # Type3 Generators variables
+    @variable(mast, Enrg_TES_var[G_T3,Time] >=0);
+    @variable(mast, GenT3_Rsv_var[G_T3,Time] >=0);
+    @variable(mast, Pwr_Spill_var[G_T3,Time] >=0);
+
+    # CST constraints
+    # Type3 Generators Power Limit
+    @constraint(mast, TES_SOC[g in G_T3, t in 2:T],
+            Enrg_TES_var[g,t] 
+            == TES_eff[g] * Enrg_TES_var[g,t-1] 
+            + Resource_trace_T3[g,t] 
+            - Pwr_Gen_var[g,t] 
+            - Pwr_Spill_var[g,t]
+    );
+    @constraint(mast, TES_SOC_ini[g in G_T3],  
+            Enrg_TES_var[g,1] 
+            == TES_eff[g]*Enrg_TES_ini[g] 
+            + Resource_trace_T3[g,1] 
+            - Pwr_Gen_var[g,1] 
+            - Pwr_Spill_var[g,1]
+    );
+
+    # Type3 Generators Active Power Reserve Limits
+    # Reserve limited by Generation
+    @constraint(mast, GenT3_Rsv_power_limit[g in G_T3, t in Time], 
+            GenT3_Rsv_var[g,t] <= Status_var[g,t]*Max_pwr[g]-Pwr_Gen_var[g,t]);
+
+    # Reserve limited by Storage
+    @constraint(mast, GenT3_Rsv_energy_limit[g in G_T3, t in Time], 
+            GenT3_Rsv_var[g,t] <= Enrg_TES_var[g,t]-Pwr_Gen_var[g,t]);
+    #    [g in G_T3, t in Time],  Max_pwr[g]<= Max_SOC_TES[g] ==> GenT3_Rsv_var[g,t] <= Enrg_TES_var[g,t]-Pwr_Gen_var[g,t] else GenT3_Rsv_var[g,t]<=0);
+
+    # CST TES SOC Limits
+    @constraint(mast, Min_TES_SOC[g in G_T3, t in Time], 
+            Enrg_TES_var[g,t] >= Min_SOC_TES[g]);
+    @constraint(mast, Max_TES_SOC[g in G_T3, t in Time], 
+            Enrg_TES_var[g,t] <= Max_SOC_TES[g]);
 end
 
 
