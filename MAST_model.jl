@@ -108,7 +108,7 @@ PReserve_factor = 0.1;
 
 
 ## Model defination
-mast = Model(GLPK.Optimizer);
+mast = Model(GLPK.Optimizer)
 
 # Decision variable
 @variable(mast, 0 <= Status_var[g in UGen, t in Time] <= Units[g], Int);
