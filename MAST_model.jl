@@ -1,27 +1,39 @@
 ## Load data
 using DataFrames
-using XLSX
+using XLSX, CSV
 
 data_path = joinpath(@__DIR__, "Test1.xlsx");
 generator_df = DataFrame(XLSX.readtable(data_path, "Generator Data"));
-bus_df = DataFrame(XLSX.readtable(data_path, "Bus Data"))
-branch_df = DataFrame(XLSX.readtable(data_path, "Branch Data"))
-utility_storage_df = DataFrame(XLSX.readtable(data_path, "Utility Storage Data"))
+bus_df = DataFrame(XLSX.readtable(data_path, "Bus Data"));
+branch_df = DataFrame(XLSX.readtable(data_path, "Branch Data"));
+utility_storage_df = DataFrame(XLSX.readtable(data_path, "Utility Storage Data"));
 
+path_NTNDP = joinpath(@__DIR__, "2013_NTNDP_Plexos_Database");
+path_N_East = joinpath(path_NTNDP, "N_East.csv");
+path_N_West = joinpath(path_NTNDP, "N_West.csv");
+path_N_South = joinpath(path_NTNDP, "N_South.csv");
+path_N_North = joinpath(path_NTNDP, "N_North.csv");
+N_East_df = DataFrame(CSV.File(path_N_East, header = 0));
+N_East_load = N_East_df[1, 4:end]       # TODO: Use data for the first day temporarily, change later.
+N_West_df = DataFrame(CSV.File(path_N_West, header = 0));
+N_South_df = DataFrame(CSV.File(path_N_South, header = 0));
+N_North_df = DataFrame(CSV.File(path_N_North, header = 0));
+Demand_df_array = [N_West_df, N_North_df, N_East_df, N_South_df];
 ## MAST model
 using JuMP, GLPK, LinearAlgebra, DataFrames
 
 # Default Parameters
-# en_Uty_Strg = false;
-# en_DR = false;
-# en_DR_PV = true;
-# en_DR_Strg = true;
-en_Uty_Strg = true;
-en_DR = true;
+en_Uty_Strg = false;
+en_DR = false;
 en_DR_PV = true;
 en_DR_Strg = true;
+
+# en_Uty_Strg = true;
+# en_DR = true;
+# en_DR_PV = true;
+# en_DR_Strg = true;
 en_Type2 = count(i -> i == 2, generator_df[18, 1]) >= 1;
-en_Type3 = true; #count(i -> i == 3, generator_df[18, 1]) >= 1;
+en_Type3 = count(i -> i == 3, generator_df[18, 1]) >= 1;
 # set to true temporary to test all code.
 
 
@@ -40,7 +52,6 @@ URegion = 1:4;       # TODO: What is URegion?
 
 T = 24;     # ? Not sure
 Time = 1:T;
-# node_num    # What's UNode?
 
 # Cross set generation
 Gen_Node_links  = [(g, n) for g in UGen for n in UNode];
@@ -79,8 +90,16 @@ Susceptance = branch_df[7, 1]   # Susceptance (pu)
 
 # Demand parameters
 # TODO: Not found in excel file, using placeholder instead
-Csm_Demand = 300 * ones(bus_num, T);
-Psm_Demand = 300 * ones(bus_num, T);
+Prosumer_ratio = bus_df[6, 1] / 100;
+Demand = zeros(bus_num, T);
+Csm_Demand = zeros(bus_num, T);
+Psm_Demand = zeros(bus_num, T);
+for i in 1:bus_num
+    Demand[i, :] = convert(Array, N_West_df[i, 4:end]) * bus_df[4, 1][i];             # TODO: Use map to replace hard coding
+    Psm_Demand[i, :] = Demand[i, :] * Prosumer_ratio[i];
+    Csm_Demand[i, :] = Demand[i, :] * (1 - Prosumer_ratio[i]);
+end
+
 Loss_factor = 0.1;
 PReserve_factor = 0.1;
 
@@ -92,13 +111,13 @@ PReserve_factor = 0.1;
 mast = Model(GLPK.Optimizer);
 
 # Decision variable
-@variable(mast, 0 <= Status_var[g in UGen, t in Time] <= Units[g], Int)
-@variable(mast, S_Up_var[UGen, Time] >= 0, Int)
-@variable(mast, S_Down_var[UGen, Time] >= 0, Int)
-@variable(mast, Pwr_Gen_var[UGen, Time] >= 0)
+@variable(mast, 0 <= Status_var[g in UGen, t in Time] <= Units[g], Int);
+@variable(mast, S_Up_var[UGen, Time] >= 0, Int);
+@variable(mast, S_Down_var[UGen, Time] >= 0, Int);
+@variable(mast, Pwr_Gen_var[UGen, Time] >= 0);
 
-@variable(mast, Pwr_line_var[ULine, Time])
-@variable(mast, Angle_line_var[UNode, Time])
+@variable(mast, Pwr_line_var[ULine, Time]);
+@variable(mast, Angle_line_var[UNode, Time]);
 
 # Objective function
 total_cost = sum(
@@ -108,46 +127,7 @@ total_cost = sum(
     + C_Var[g] * Pwr_Gen_var[g, t]
     for g in UGen for t in Time
 );
-@objective(mast, Min, total_cost)
-
-# Power balance constraint
-if en_Uty_Strg
-    # Utility Storage sets and parameters
-    utility_num = length(utility_storage_df[1, 1]);
-    UStorage = 1:utility_num;
-    Storage_Node_links = [(s, n) for s in UStorage for n in UNode];
-
-    Chrg_rate_strg = utility_storage_df[6, 1];      # Maximum Charge Rate (MW/h)
-    Dchrg_rate_strg = utility_storage_df[7, 1];     # Maximum Discharge Rate (MW/h)
-    Min_SOC_strg = utility_storage_df[5, 1];        # Minimum Storage Capacity (MWh)
-    Max_SOC_strg = utility_storage_df[4, 1];        # Maximum Storage Capacity (MWh)
-    Storage_eff = utility_storage_df[8, 1] / 100;   # Storage Efficiency (0 ~ 1)
-
-    Enrg_Strg_ini = zeros(utility_num);     # TODO: placeholder
-        
-    # Utility storage variables
-    @variable(mast, Pwr_chrg_Strg_var[UStorage, Time] >= 0)
-    @variable(mast, Pwr_dchrg_Strg_var[UStorage, Time] >= 0)
-    @variable(mast, Enrg_Strg_var[UStorage, Time] >= 0)
-
-    @constraint(mast, Power_Balance[n in UNode, t in Time],
-                sum(Pwr_Gen_var[g, t] for (g, n) in Gen_Node_links)
-                + sum(Pwr_line_var[l1, t] for (l1, n) in Line_end1_Node_links)
-                == Csm_Demand[n, t]
-                + Loss_factor * Csm_Demand[n, t]
-                + sum(Pwr_line_var[l2, t] for (l2, n) in Line_end2_Node_links)
-                + sum((Pwr_chrg_Strg_var[s,t] - Pwr_dchrg_Strg_var[s,t]) for (s, n) in Storage_Node_links)
-
-    )
-else
-    @constraint(mast, Power_Balance[n in UNode, t in Time],
-                sum(Pwr_Gen_var[g, t] for (g, n) in Gen_Node_links)
-                + sum(Pwr_line_var[l1, t] for (l1, n) in Line_end1_Node_links)
-                == Csm_Demand[n, t]
-                + Loss_factor * Csm_Demand[n, t]
-                + sum(Pwr_line_var[l2, t] for (l2, n) in Line_end2_Node_links)
-    )
-end
+@objective(mast, Min, total_cost);
 
 
 ## Generator Constraints, Stable Limit
@@ -169,7 +149,7 @@ end
 
 # Generator Ramping Constraints, using (a ==> b) <=> (!a || b)
 @constraint(mast, ramp_up[g in G_Syn, t in 2:T], 
-       Ramp_up[g] >= Max_pwr[g] || Pwr_Gen_var[g,t] - Pwr_Gen_var[g,t-1] <= Status_var[g,t]*Ramp_up[g]);        # ERROR: Cannot use ||
+       (Ramp_up[g] < Max_pwr[g]) => {Pwr_Gen_var[g,t] - Pwr_Gen_var[g,t-1] <= Status_var[g,t] * Ramp_up[g]});        # ERROR: Cannot use ||
 @constraint(mast, ramp_up_initial[g in G_Syn], 
        Ramp_up[g] >= Max_pwr[g] || Pwr_Gen_var[g,1] - Pwr_Gen_ini[g] <= Status_var[g,1]*Ramp_up[g]);
 @constraint(mast, ramp_down[g in G_Syn, t in 2:T], 
@@ -186,7 +166,7 @@ end
 @constraint(mast, min_down_Time[g in G_Syn, t in MDT[g]:T], 
        MDT[g] <= 1 || Status_var[g,t] <= Units[g] - sum(S_Down_var[g,t-t1] for t1 in 0:MDT[g]-1));
 @constraint(mast, min_down_Time_ini[g in G_Syn, t in 1:MDT[g]-1], 
-       MDT[g] <= 1 || Status_var[g,t]\n <= Units[g] - sum(S_Down_var[g,t-t1] for t1 in 0:t-1) - MDT_ini[g,t]);
+       MDT[g] <= 1 || Status_var[g,t] <= Units[g] - sum(S_Down_var[g,t-t1] for t1 in 0:t-1) - MDT_ini[g,t]);
 
 # Maximum limit on ON units
 @constraint(mast, max_ONunits[g in UGen, t in Time],
@@ -283,11 +263,26 @@ if en_Type3
 end
 
 
-
-
-
 ## Utility Storage Constrints
 if en_Uty_Strg
+    # Utility Storage sets and parameters
+    utility_num = length(utility_storage_df[1, 1]);
+    UStorage = 1:utility_num;
+    Storage_Node_links = [(s, n) for s in UStorage for n in UNode];
+
+    Chrg_rate_strg = utility_storage_df[6, 1];      # Maximum Charge Rate (MW/h)
+    Dchrg_rate_strg = utility_storage_df[7, 1];     # Maximum Discharge Rate (MW/h)
+    Min_SOC_strg = utility_storage_df[5, 1];        # Minimum Storage Capacity (MWh)
+    Max_SOC_strg = utility_storage_df[4, 1];        # Maximum Storage Capacity (MWh)
+    Storage_eff = utility_storage_df[8, 1] / 100;   # Storage Efficiency (0 ~ 1)
+
+    Enrg_Strg_ini = zeros(utility_num);     # TODO: placeholder
+        
+    # Utility storage variables
+    @variable(mast, Pwr_chrg_Strg_var[UStorage, Time] >= 0)
+    @variable(mast, Pwr_dchrg_Strg_var[UStorage, Time] >= 0)
+    @variable(mast, Enrg_Strg_var[UStorage, Time] >= 0)
+
     # Utility Storage Energy Balance Constraint
     @constraint(mast, Storage_energy_balance[s in UStorage, t in 2:T],
                 Enrg_Strg_var[s, t]
@@ -486,3 +481,24 @@ if en_DR
     @constraint(mast, mu_eu_perp_eb_C[p in UNode, t in Time],
             Engy_bat_var[p,t] <= Max_SOC_bat[p] );
 end
+
+## Power balance constraint 
+# Use (flag * expression) to control the constraint 
+@constraint(mast, Power_Balance[n in UNode, t in Time],
+        sum(Pwr_Gen_var[g, t] for (g, n) in Gen_Node_links)
+        + sum(Pwr_line_var[l1, t] for (l1, n) in Line_end1_Node_links)
+        == Csm_Demand[n, t]
+        + Loss_factor * Csm_Demand[n, t]
+        + sum(Pwr_line_var[l2, t] for (l2, n) in Line_end2_Node_links)
+        + en_Uty_Strg * sum((Pwr_chrg_Strg_var[s,t] - Pwr_dchrg_Strg_var[s,t]) for (s, n) in Storage_Node_links)
+        + en_DR * (
+                Pwr_pgp_var[n,t] 
+                + Loss_factor * Pwr_pgp_var[n,t] 
+                - Pwr_pgn_var[n,t] 
+                + Loss_factor * Pwr_pgn_var[n,t]
+                )
+)
+
+## Optimize
+optimize!(mast)
+objective_value(mast)
