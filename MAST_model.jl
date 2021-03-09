@@ -147,26 +147,71 @@ total_cost = sum(
         == Status_var[g,1] - Status_ini[g]
 );
 
-# Generator Ramping Constraints, using (a ==> b) <=> (!a || b)
-@constraint(mast, ramp_up[g in G_Syn, t in 2:T], 
-       (Ramp_up[g] < Max_pwr[g]) => {Pwr_Gen_var[g,t] - Pwr_Gen_var[g,t-1] <= Status_var[g,t] * Ramp_up[g]});        # ERROR: Cannot use ||
-@constraint(mast, ramp_up_initial[g in G_Syn], 
-       Ramp_up[g] >= Max_pwr[g] || Pwr_Gen_var[g,1] - Pwr_Gen_ini[g] <= Status_var[g,1]*Ramp_up[g]);
-@constraint(mast, ramp_down[g in G_Syn, t in 2:T], 
-       Ramp_down[g] >= Max_pwr[g] || Pwr_Gen_var[g,t-1] - Pwr_Gen_var[g,t] <= Status_var[g,t-1]*Ramp_down[g]);
-@constraint(mast, ramp_down_initial[g in G_Syn], 
-       Ramp_down[g] >= Max_pwr[g] || Pwr_Gen_ini[g] - Pwr_Gen_var[g,1] <= Status_ini[g]*Ramp_down[g]);
+# Generator Ramping Constraints, using 'if' to express '==>'
+
+# @constraint(mast, ramp_up[g in G_Syn, t in 2:T], 
+#        (Ramp_up[g] < Max_pwr[g]) => {Pwr_Gen_var[g,t] - Pwr_Gen_var[g,t-1] <= Status_var[g,t] * Ramp_up[g]});        # ERROR: Cannot use ||
+for g in G_Syn, t in 2:T
+    if Ramp_up[g] < Max_pwr[g]
+        @constraint(mast, Pwr_Gen_var[g,t] - Pwr_Gen_var[g,t-1] <= Status_var[g,t] * Ramp_up[g]);
+    end
+end
+
+# @constraint(mast, ramp_up_initial[g in G_Syn], 
+#        Ramp_up[g] >= Max_pwr[g] || Pwr_Gen_var[g,1] - Pwr_Gen_ini[g] <= Status_var[g,1]*Ramp_up[g]);
+for g in G_Syn
+    if Ramp_up[g] < Max_pwr[g]
+        @constraint(mast, Pwr_Gen_var[g,1] - Pwr_Gen_ini[g] <= Status_var[g,1]*Ramp_up[g]);
+    end
+end
+# @constraint(mast, ramp_down[g in G_Syn, t in 2:T], 
+#        Ramp_down[g] >= Max_pwr[g] || Pwr_Gen_var[g,t-1] - Pwr_Gen_var[g,t] <= Status_var[g,t-1]*Ramp_down[g]);
+for g in G_Syn, t in 2:T
+    if Ramp_down[g] < Max_pwr[g]
+        @constraint(mast, Pwr_Gen_var[g,t-1] - Pwr_Gen_var[g,t] <= Status_var[g,t-1]*Ramp_down[g]);
+    end
+end
+# @constraint(mast, ramp_down_initial[g in G_Syn], 
+#        Ramp_down[g] >= Max_pwr[g] || Pwr_Gen_ini[g] - Pwr_Gen_var[g,1] <= Status_ini[g]*Ramp_down[g]);
+for g in G_Syn
+    if Ramp_down[g] < Max_pwr[g]
+        @constraint(mast, Pwr_Gen_ini[g] - Pwr_Gen_var[g,1] <= Status_ini[g]*Ramp_down[g]);
+    end
+end
 
 # Generator Minimum Up/Down Time Constraints
-@constraint(mast, min_up_Time[g in G_Syn, t in MUT[g]:T], 
-       MUT[g] <= 1 || Status_var[g,t] >= sum(S_Up_var[g, t-t1] for t1 in 0:MUT[g]-1));
-@constraint(mast, min_up_Time_ini[g in G_Syn, t in 1:(MUT[g]-1)], 
-       MUT[g] <= 1 || Status_var[g,t] >= sum(S_Up_var[g,t-t1] for t1 in 0:t-1) + MUT_ini[g,t]);
 
-@constraint(mast, min_down_Time[g in G_Syn, t in MDT[g]:T], 
-       MDT[g] <= 1 || Status_var[g,t] <= Units[g] - sum(S_Down_var[g,t-t1] for t1 in 0:MDT[g]-1));
-@constraint(mast, min_down_Time_ini[g in G_Syn, t in 1:MDT[g]-1], 
-       MDT[g] <= 1 || Status_var[g,t] <= Units[g] - sum(S_Down_var[g,t-t1] for t1 in 0:t-1) - MDT_ini[g,t]);
+# @constraint(mast, min_up_Time[g in G_Syn, t in MUT[g]:T], 
+#        MUT[g] <= 1 || Status_var[g,t] >= sum(S_Up_var[g, t-t1] for t1 in 0:MUT[g]-1));
+for g in G_Syn, t in MUT[g]:T
+    if MUT[g] > 1
+        @constraint(mast, Status_var[g,t] >= sum(S_Up_var[g, t-t1] for t1 in 0:MUT[g]-1));
+    end
+end
+
+# @constraint(mast, min_up_Time_ini[g in G_Syn, t in 1:(MUT[g]-1)], 
+#        MUT[g] <= 1 || Status_var[g,t] >= sum(S_Up_var[g,t-t1] for t1 in 0:t-1) + MUT_ini[g,t]);
+for g in G_Syn, t in 1:(MUT[g]-1)
+    if MUT[g] > 1
+        @constraint(mast, Status_var[g,t] >= sum(S_Up_var[g,t-t1] for t1 in 0:t-1) + MUT_ini[g,t]);
+    end
+end
+
+# @constraint(mast, min_down_Time[g in G_Syn, t in MDT[g]:T], 
+#        MDT[g] <= 1 || Status_var[g,t] <= Units[g] - sum(S_Down_var[g,t-t1] for t1 in 0:MDT[g]-1));
+for g in G_Syn, t in MDT[g]:T
+    if MDT[g] > 1
+        @constraint(mast, Status_var[g,t] <= Units[g] - sum(S_Down_var[g,t-t1] for t1 in 0:MDT[g]-1));
+    end
+end
+
+# @constraint(mast, min_down_Time_ini[g in G_Syn, t in 1:MDT[g]-1], 
+#        MDT[g] <= 1 || Status_var[g,t] <= Units[g] - sum(S_Down_var[g,t-t1] for t1 in 0:t-1) - MDT_ini[g,t]);
+for g in G_Syn, t in 1:MDT[g]-1
+    if MDT[g] > 1
+        @constraint(mast, Status_var[g,t] <= Units[g] - sum(S_Down_var[g,t-t1] for t1 in 0:t-1) - MDT_ini[g,t]);
+    end
+end
 
 # Maximum limit on ON units
 @constraint(mast, max_ONunits[g in UGen, t in Time],
@@ -490,14 +535,14 @@ end
         == Csm_Demand[n, t]
         + Loss_factor * Csm_Demand[n, t]
         + sum(Pwr_line_var[l2, t] for (l2, n) in Line_end2_Node_links)
-        + en_Uty_Strg * sum((Pwr_chrg_Strg_var[s,t] - Pwr_dchrg_Strg_var[s,t]) for (s, n) in Storage_Node_links)
-        + en_DR * (
+        + (en_Uty_Strg ? sum((Pwr_chrg_Strg_var[s,t] - Pwr_dchrg_Strg_var[s,t]) for (s, n) in Storage_Node_links) : 0)
+        + (en_DR ? (
                 Pwr_pgp_var[n,t] 
                 + Loss_factor * Pwr_pgp_var[n,t] 
                 - Pwr_pgn_var[n,t] 
                 + Loss_factor * Pwr_pgn_var[n,t]
-                )
-)
+                ) : 0)
+);
 
 ## Optimize
 optimize!(mast)

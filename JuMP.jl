@@ -1,5 +1,4 @@
 using JuMP, GLPK, LinearAlgebra, DataFrames
-using ConditionalJuMP
 # Define some input data about the test system
 # Maximum power output of generators
 g_max = [1000, 1000];
@@ -45,8 +44,6 @@ w_num = length(w_f)
 # Define the constraint on the maximum and minimum power output of each generator
 @constraint(ed, con[i = 1:g_num], g[i] <= g_max[i]) #maximum
 @constraint(ed, [i = 1:g_num], g[i] >= g_min[i]) #minimum
-
-@implies (ed, nonsense, 4>2 => x >= 3)
 
 # Define the constraint on the wind power injection
 @constraint(ed, [i = 1:w_num], w[i] <= w_f[i])

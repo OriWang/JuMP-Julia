@@ -1,0 +1,1 @@
+objective_value(ed)
