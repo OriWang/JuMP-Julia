@@ -156,7 +156,7 @@ total_cost = sum(
         S_Up_var[g,1] - S_Down_var[g,1]
         == Status_var[g,1] - Status_ini[g]
 );
-
+println("Line 159 finished");
 
 # Generator Ramping Constraints, using 'if' to express '==>'
 
@@ -167,6 +167,7 @@ for g in G_Syn, t in 2:T
         @constraint(mast, Pwr_Gen_var[g,t] - Pwr_Gen_var[g,t-1] <= Status_var[g,t] * Ramp_up[g]);
     end
 end
+println("Line 170 finished");
 
 # @constraint(mast, ramp_up_initial[g in G_Syn],
 #        Ramp_up[g] >= Max_pwr[g] || Pwr_Gen_var[g,1] - Pwr_Gen_ini[g] <= Status_var[g,1]*Ramp_up[g]);
@@ -182,6 +183,8 @@ for g in G_Syn, t in 2:T
         @constraint(mast, Pwr_Gen_var[g,t-1] - Pwr_Gen_var[g,t] <= Status_var[g,t-1]*Ramp_down[g]);
     end
 end
+println("Line 185 finished");
+
 # @constraint(mast, ramp_down_initial[g in G_Syn],
 #        Ramp_down[g] >= Max_pwr[g] || Pwr_Gen_ini[g] - Pwr_Gen_var[g,1] <= Status_ini[g]*Ramp_down[g]);
 for g in G_Syn
@@ -189,6 +192,7 @@ for g in G_Syn
         @constraint(mast, Pwr_Gen_ini[g] - Pwr_Gen_var[g,1] <= Status_ini[g]*Ramp_down[g]);
     end
 end
+println("Line 195 finished.");
 
 # Generator Minimum Up/Down Time Constraints
 
@@ -207,6 +211,7 @@ for g in G_Syn, t in 1:(MUT[g]-1)
         @constraint(mast, Status_var[g,t] >= sum(S_Up_var[g,t-t1] for t1 in 0:t-1) + MUT_ini[g,t]);
     end
 end
+println("Line 214 finished");
 
 # @constraint(mast, min_down_Time[g in G_Syn, t in MDT[g]:T],
 #        MDT[g] <= 1 || Status_var[g,t] <= Units[g] - sum(S_Down_var[g,t-t1] for t1 in 0:MDT[g]-1));
@@ -227,7 +232,7 @@ end
 # Maximum limit on ON units
 @constraint(mast, max_ONunits[g in UGen, t in Time],
        Status_var[g,t] <= Units[g]);
-
+println("Line 235 finished.");
 
 ## Interconnect constraints
 # Thermal limits
@@ -243,7 +248,7 @@ end
             - sum(Angle_line_var[n2,t] for (l,n2) in Line_end2_Node_links )
             )
 );
-
+println("Line 250 finished");
 
 ## Type2 (PV and Wind) generator additional constraints
 if en_Type2
@@ -370,7 +375,7 @@ if en_Uty_Strg
     )
 end
 
-
+print("Line 373 Completed");
 ## Demand Response
 if en_DR
     # Demand response parameters
@@ -539,7 +544,7 @@ if en_DR
 end
 """
 """
-
+print("Line 542 completed");
 ## Power balance constraint
 # Use (flag ? expression : 0) to control the constraint
 # Use `abs < a small positive` to show two floats are identical.
@@ -559,7 +564,7 @@ end
                 + Loss_factor * Pwr_pgn_var[n,t]
                 ) : 0)
         )
-    ) <= 1E-3
+    ) #<= 1E-3
 );
 
 
