@@ -2,11 +2,17 @@
 using DataFrames
 using XLSX, CSV
 
-data_path = joinpath(@__DIR__, "Test1.xlsx");
-generator_df = DataFrame(XLSX.readtable(data_path, "Generator Data"));
-bus_df = DataFrame(XLSX.readtable(data_path, "Bus Data"));
-branch_df = DataFrame(XLSX.readtable(data_path, "Branch Data"));
-utility_storage_df = DataFrame(XLSX.readtable(data_path, "Utility Storage Data"));
+data_path = joinpath(@__DIR__, "14Gen");
+# generator_df = DataFrame(XLSX.readtable(data_path, "Generator Data"));
+generator_df = DataFrame(CSV.File(joinpath(data_path, "14Gen_generator.csv")));
+generator_df = generator_df[1:end-1, :];       # delete missing data
+# bus_df = DataFrame(XLSX.readtable(data_path, "Bus Data"));
+bus_df = DataFrame(CSV.File(joinpath(data_path, "14Gen_bus.csv")));
+# branch_df = DataFrame(XLSX.readtable(data_path, "Branch Data"));
+branch_df = DataFrame(CSV.File(joinpath(data_path, "14Gen_branch.csv")));
+
+# utility_storage_df = DataFrame(XLSX.readtable(data_path, "Utility Storage Data"));
+utility_storage_df = DataFrame(CSV.File(joinpath(data_path, "14Gen_utility.csv")));
 
 path_NTNDP = joinpath(@__DIR__, "2013_NTNDP_Plexos_Database");
 path_N_East = joinpath(path_NTNDP, "N_East.csv");
@@ -23,7 +29,7 @@ Demand_df_array = [N_West_df, N_North_df, N_East_df, N_South_df];
 using JuMP, GLPK, LinearAlgebra, DataFrames
 
 # Default Parameters
-en_Uty_Strg = false;
+en_Uty_Strg = size(utility_storage_df)[1] >= 1;
 en_DR = false;
 en_DR_PV = true;
 en_DR_Strg = true;
@@ -32,20 +38,20 @@ en_DR_Strg = true;
 # en_DR = true;
 # en_DR_PV = true;
 # en_DR_Strg = true;
-en_Type2 = count(i -> i == 2, generator_df[18, 1]) >= 1;
-en_Type3 = count(i -> i == 3, generator_df[18, 1]) >= 1;
+en_Type2 = count(i -> i == 2, generator_df[:, 18]) >= 1;
+en_Type3 = count(i -> i == 3, generator_df[:, 18]) >= 1;
 # set to true temporary to test all code.
 
 
 # Set declaration
-gen_num = length(generator_df[1, 1]);
+gen_num = length(generator_df[:, 1]);
 UGen = 1:gen_num;
 G_Syn = 1:gen_num;      # TODO: Need to change G_Syn as a subset of UGen
-G_T1 = findall(i -> i==1, generator_df[18, 1]);     # Find the indices of all type 1 generators
+G_T1 = findall(i -> i==1, generator_df[:, 18]);     # Find the indices of all type 1 generators
 
-bus_num = length(bus_df[1, 1]);
+bus_num = length(bus_df[:, 1]);
 UNode = 1:bus_num;
-branch_num = length(branch_df[1, 1]);
+branch_num = length(branch_df[:, 1]);
 ULine = 1:branch_num;
 URegion = 1:4;       # TODO: What is URegion?
 
@@ -62,19 +68,19 @@ Line_end2_Node_links = [(l, n) for l in ULine for n in UNode];
 Node_Region_links = [(n, r) for n in UNode for r in URegion];
 
 # Generator cost
-C_Fix = generator_df[6, 1];     # Fixed cost
-C_Su = generator_df[7, 1];      # Start up cost
-C_Sd = generator_df[8, 1];      # Shut down cost
-C_Var = generator_df[9, 1];     # Variable cost
+C_Fix = generator_df[:, 6];     # Fixed cost
+C_Su = generator_df[:, 7];      # Start up cost
+C_Sd = generator_df[:, 8];      # Shut down cost
+C_Var = generator_df[:, 9];     # Variable cost
 
 # Generator parameters
-Max_pwr = generator_df[10, 1];  # Maximum real power
-Min_pwr = generator_df[11, 1];  # Minimum real power
-Ramp_up = generator_df[14, 1];  # Ramp up rate
-Ramp_down = generator_df[15, 1];    # Ramp down rate
-MUT = generator_df[16, 1];      # MUT
-MDT = generator_df[17, 1];      # MDT
-Units = generator_df[3, 1];     # Number of units
+Max_pwr = generator_df[:, 10];  # Maximum real power
+Min_pwr = generator_df[:, 11];  # Minimum real power
+Ramp_up = generator_df[:, 14];  # Ramp up rate
+Ramp_down = generator_df[:, 15];    # Ramp down rate
+MUT = generator_df[:, 16];      # MUT
+MDT = generator_df[:, 17];      # MDT
+Units = generator_df[:, 3];     # Number of units
 
 # Generator initial conditions
 # TODO: Did not find in excel file, use placeholders instead.
@@ -85,17 +91,17 @@ MDT_ini = zeros(gen_num, T);
 
 
 # Interconnector parameter
-ThrmLim = branch_df[8, 1];      # Thermal limit (MVA)
-Susceptance = branch_df[7, 1]   # Susceptance (pu)
+ThrmLim = branch_df[:, 8];        # Thermal limit (MVA)
+Susceptance = branch_df[:, 10];   # Susceptance (pu)
 
 # Demand parameters
 # TODO: Not found in excel file, using placeholder instead
-Prosumer_ratio = bus_df[6, 1] / 100;
+Prosumer_ratio = bus_df[:, 6] / 100;
 Demand = zeros(bus_num, T);
 Csm_Demand = zeros(bus_num, T);
 Psm_Demand = zeros(bus_num, T);
 for i in 1:bus_num
-    Demand[i, :] = convert(Array, N_West_df[i, 4:end]) * bus_df[4, 1][i];             # TODO: Use map to replace hard coding
+    Demand[i, :] = convert(Array, N_West_df[i, 4:end]) * bus_df[:, 4][i];             # TODO: Use map to replace hard coding
     Psm_Demand[i, :] = Demand[i, :] * Prosumer_ratio[i];
     Csm_Demand[i, :] = Demand[i, :] * (1 - Prosumer_ratio[i]);
 end
@@ -129,27 +135,32 @@ total_cost = sum(
 );
 @objective(mast, Min, total_cost);
 
+# Comment codes to test
+
 
 ## Generator Constraints, Stable Limit
 # Syn Generators
+"""
 @constraint(mast, Gen_max_pwr[g in G_Syn, t in Time],
         Pwr_Gen_var[g,t] <= Max_pwr[g] * Status_var[g,t]);
-@constraint(mast, Gen_min_pwr[g in G_Syn, t in Time], 
+@constraint(mast, Gen_min_pwr[g in G_Syn, t in Time],
         Min_pwr[g]*Status_var[g,t] <= Pwr_Gen_var[g,t]);
+"""
 
 # Integer variable linking Constraint
-@constraint(mast, On_Off[g in G_Syn, t in 2:T], 
-        S_Up_var[g,t] - S_Down_var[g,t] 
+@constraint(mast, On_Off[g in G_Syn, t in 2:T],
+        S_Up_var[g,t] - S_Down_var[g,t]
         == Status_var[g,t] - Status_var[g,t-1]
 );
-@constraint(mast, On_Off_initial[g in G_Syn], 
-        S_Up_var[g,1] - S_Down_var[g,1] 
+@constraint(mast, On_Off_initial[g in G_Syn],
+        S_Up_var[g,1] - S_Down_var[g,1]
         == Status_var[g,1] - Status_ini[g]
 );
 
+
 # Generator Ramping Constraints, using 'if' to express '==>'
 
-# @constraint(mast, ramp_up[g in G_Syn, t in 2:T], 
+# @constraint(mast, ramp_up[g in G_Syn, t in 2:T],
 #        (Ramp_up[g] < Max_pwr[g]) => {Pwr_Gen_var[g,t] - Pwr_Gen_var[g,t-1] <= Status_var[g,t] * Ramp_up[g]});        # ERROR: Cannot use ||
 for g in G_Syn, t in 2:T
     if Ramp_up[g] < Max_pwr[g]
@@ -157,21 +168,21 @@ for g in G_Syn, t in 2:T
     end
 end
 
-# @constraint(mast, ramp_up_initial[g in G_Syn], 
+# @constraint(mast, ramp_up_initial[g in G_Syn],
 #        Ramp_up[g] >= Max_pwr[g] || Pwr_Gen_var[g,1] - Pwr_Gen_ini[g] <= Status_var[g,1]*Ramp_up[g]);
 for g in G_Syn
     if Ramp_up[g] < Max_pwr[g]
         @constraint(mast, Pwr_Gen_var[g,1] - Pwr_Gen_ini[g] <= Status_var[g,1]*Ramp_up[g]);
     end
 end
-# @constraint(mast, ramp_down[g in G_Syn, t in 2:T], 
+# @constraint(mast, ramp_down[g in G_Syn, t in 2:T],
 #        Ramp_down[g] >= Max_pwr[g] || Pwr_Gen_var[g,t-1] - Pwr_Gen_var[g,t] <= Status_var[g,t-1]*Ramp_down[g]);
 for g in G_Syn, t in 2:T
     if Ramp_down[g] < Max_pwr[g]
         @constraint(mast, Pwr_Gen_var[g,t-1] - Pwr_Gen_var[g,t] <= Status_var[g,t-1]*Ramp_down[g]);
     end
 end
-# @constraint(mast, ramp_down_initial[g in G_Syn], 
+# @constraint(mast, ramp_down_initial[g in G_Syn],
 #        Ramp_down[g] >= Max_pwr[g] || Pwr_Gen_ini[g] - Pwr_Gen_var[g,1] <= Status_ini[g]*Ramp_down[g]);
 for g in G_Syn
     if Ramp_down[g] < Max_pwr[g]
@@ -181,7 +192,7 @@ end
 
 # Generator Minimum Up/Down Time Constraints
 
-# @constraint(mast, min_up_Time[g in G_Syn, t in MUT[g]:T], 
+# @constraint(mast, min_up_Time[g in G_Syn, t in MUT[g]:T],
 #        MUT[g] <= 1 || Status_var[g,t] >= sum(S_Up_var[g, t-t1] for t1 in 0:MUT[g]-1));
 for g in G_Syn, t in MUT[g]:T
     if MUT[g] > 1
@@ -189,7 +200,7 @@ for g in G_Syn, t in MUT[g]:T
     end
 end
 
-# @constraint(mast, min_up_Time_ini[g in G_Syn, t in 1:(MUT[g]-1)], 
+# @constraint(mast, min_up_Time_ini[g in G_Syn, t in 1:(MUT[g]-1)],
 #        MUT[g] <= 1 || Status_var[g,t] >= sum(S_Up_var[g,t-t1] for t1 in 0:t-1) + MUT_ini[g,t]);
 for g in G_Syn, t in 1:(MUT[g]-1)
     if MUT[g] > 1
@@ -197,7 +208,7 @@ for g in G_Syn, t in 1:(MUT[g]-1)
     end
 end
 
-# @constraint(mast, min_down_Time[g in G_Syn, t in MDT[g]:T], 
+# @constraint(mast, min_down_Time[g in G_Syn, t in MDT[g]:T],
 #        MDT[g] <= 1 || Status_var[g,t] <= Units[g] - sum(S_Down_var[g,t-t1] for t1 in 0:MDT[g]-1));
 for g in G_Syn, t in MDT[g]:T
     if MDT[g] > 1
@@ -205,7 +216,7 @@ for g in G_Syn, t in MDT[g]:T
     end
 end
 
-# @constraint(mast, min_down_Time_ini[g in G_Syn, t in 1:MDT[g]-1], 
+# @constraint(mast, min_down_Time_ini[g in G_Syn, t in 1:MDT[g]-1],
 #        MDT[g] <= 1 || Status_var[g,t] <= Units[g] - sum(S_Down_var[g,t-t1] for t1 in 0:t-1) - MDT_ini[g,t]);
 for g in G_Syn, t in 1:MDT[g]-1
     if MDT[g] > 1
@@ -222,11 +233,11 @@ end
 # Thermal limits
 @constraint(mast, thermal_limit_ub[l in ULine, t in Time],
         Pwr_line_var[l,t] <= ThrmLim[l]);
-@constraint(mast, thermal_limit_lb[l in ULine, t in Time], 
+@constraint(mast, thermal_limit_lb[l in ULine, t in Time],
         -ThrmLim[l] <= Pwr_line_var[l,t]);
 
 # AC line angle stability
-@constraint(mast, angle_limit[l in ULine, t in Time], 
+@constraint(mast, angle_limit[l in ULine, t in Time],
         Pwr_line_var[l,t] == Susceptance[l] * (
             sum(Angle_line_var[n1,t] for (l,n1) in Line_end1_Node_links)
             - sum(Angle_line_var[n2,t] for (l,n2) in Line_end2_Node_links )
@@ -238,7 +249,7 @@ end
 if en_Type2
     # RES generator parameters
     # Type2 Generators Sets
-    G_T2  = findall(i -> i == 2, generator_df[18, 1]);
+    G_T2  = findall(i -> i == 2, generator_df[:, 18]);
 
     # Type2 Generators Parameters
     Resource_trace_T2 = 200 * ones(length(G_T2), T);     # matrix_generator_x_time[G_T2, Time]    # TODO: replace the placeholder
@@ -247,7 +258,7 @@ if en_Type2
     # Type2 Power Limit
     @constraint(mast, Resource_availability_T2[g in G_T2, t in Time],
                 Pwr_Gen_var[g,t] <= Status_var[g,t] * Resource_trace_T2[g,t]);
-    @constraint(mast, G_T2_min_pwr[g in G_T2, t in Time], 
+    @constraint(mast, G_T2_min_pwr[g in G_T2, t in Time],
                 Status_var[g,t] * Min_pwr[g] <= Pwr_Gen_var[g,t]);
 end
 
@@ -256,7 +267,7 @@ end
 if en_Type3
     # CSP generator parameters
     # Type3 Generators Sets
-    G_T3 = [1, 2];   # findall(i -> i==3, generator_df[18, 1]);         # TODO: Relace with real index later
+    G_T3 = [1, 2];   # findall(i -> i==3, generator_df[:, 18]);         # TODO: Relace with real index later
 
     # Type3 Generators Cross Sets
     GenT3_Region_links = [(g3, r) for g3 in G_T3 for r in URegion]
@@ -264,9 +275,9 @@ if en_Type3
     # Type3 Generators Parameters
     Resource_trace_T3 = 20 * randn(length(G_T3), T);           # matrix_generator_x_time[G_T3, Time]    # TODO: replace the placeholder
     Enrg_TES_ini = zeros(length(G_T3));                        # TODO: replace the placeholder
-    TES_eff = generator_df[24, 1][G_T3] / 100;                 # TES Efficiency (%)
-    Min_SOC_TES = generator_df[23, 1][G_T3];                   # Minimum TES Limit (MWh) 
-    Max_SOC_TES = generator_df[22, 1][G_T3];                   # Maximum TES Capacity (MWh)
+    TES_eff = generator_df[:, 24][G_T3] / 100;                 # TES Efficiency (%)
+    Min_SOC_TES = generator_df[:, 23][G_T3];                   # Minimum TES Limit (MWh)
+    Max_SOC_TES = generator_df[:, 22][G_T3];                   # Maximum TES Capacity (MWh)
 
     # Type3 Generators variables
     @variable(mast, Enrg_TES_var[G_T3,Time] >=0);
@@ -276,34 +287,34 @@ if en_Type3
     # CST constraints
     # Type3 Generators Power Limit
     @constraint(mast, TES_SOC[g in G_T3, t in 2:T],
-            Enrg_TES_var[g,t] 
-            == TES_eff[g] * Enrg_TES_var[g,t-1] 
-            + Resource_trace_T3[g,t] 
-            - Pwr_Gen_var[g,t] 
+            Enrg_TES_var[g,t]
+            == TES_eff[g] * Enrg_TES_var[g,t-1]
+            + Resource_trace_T3[g,t]
+            - Pwr_Gen_var[g,t]
             - Pwr_Spill_var[g,t]
     );
-    @constraint(mast, TES_SOC_ini[g in G_T3],  
-            Enrg_TES_var[g,1] 
-            == TES_eff[g]*Enrg_TES_ini[g] 
-            + Resource_trace_T3[g,1] 
-            - Pwr_Gen_var[g,1] 
+    @constraint(mast, TES_SOC_ini[g in G_T3],
+            Enrg_TES_var[g,1]
+            == TES_eff[g]*Enrg_TES_ini[g]
+            + Resource_trace_T3[g,1]
+            - Pwr_Gen_var[g,1]
             - Pwr_Spill_var[g,1]
     );
 
     # Type3 Generators Active Power Reserve Limits
     # Reserve limited by Generation
-    @constraint(mast, GenT3_Rsv_power_limit[g in G_T3, t in Time], 
+    @constraint(mast, GenT3_Rsv_power_limit[g in G_T3, t in Time],
             GenT3_Rsv_var[g,t] <= Status_var[g,t]*Max_pwr[g]-Pwr_Gen_var[g,t]);
 
     # Reserve limited by Storage
-    @constraint(mast, GenT3_Rsv_energy_limit[g in G_T3, t in Time], 
+    @constraint(mast, GenT3_Rsv_energy_limit[g in G_T3, t in Time],
             GenT3_Rsv_var[g,t] <= Enrg_TES_var[g,t]-Pwr_Gen_var[g,t]);
     #    [g in G_T3, t in Time],  Max_pwr[g]<= Max_SOC_TES[g] ==> GenT3_Rsv_var[g,t] <= Enrg_TES_var[g,t]-Pwr_Gen_var[g,t] else GenT3_Rsv_var[g,t]<=0);
 
     # CST TES SOC Limits
-    @constraint(mast, Min_TES_SOC[g in G_T3, t in Time], 
+    @constraint(mast, Min_TES_SOC[g in G_T3, t in Time],
             Enrg_TES_var[g,t] >= Min_SOC_TES[g]);
-    @constraint(mast, Max_TES_SOC[g in G_T3, t in Time], 
+    @constraint(mast, Max_TES_SOC[g in G_T3, t in Time],
             Enrg_TES_var[g,t] <= Max_SOC_TES[g]);
 end
 
@@ -311,18 +322,18 @@ end
 ## Utility Storage Constrints
 if en_Uty_Strg
     # Utility Storage sets and parameters
-    utility_num = length(utility_storage_df[1, 1]);
+    utility_num = length(utility_storage_df[:, 1]);
     UStorage = 1:utility_num;
     Storage_Node_links = [(s, n) for s in UStorage for n in UNode];
 
-    Chrg_rate_strg = utility_storage_df[6, 1];      # Maximum Charge Rate (MW/h)
-    Dchrg_rate_strg = utility_storage_df[7, 1];     # Maximum Discharge Rate (MW/h)
-    Min_SOC_strg = utility_storage_df[5, 1];        # Minimum Storage Capacity (MWh)
-    Max_SOC_strg = utility_storage_df[4, 1];        # Maximum Storage Capacity (MWh)
-    Storage_eff = utility_storage_df[8, 1] / 100;   # Storage Efficiency (0 ~ 1)
+    Chrg_rate_strg = utility_storage_df[:, 6];      # Maximum Charge Rate (MW/h)
+    Dchrg_rate_strg = utility_storage_df[:, 7];     # Maximum Discharge Rate (MW/h)
+    Min_SOC_strg = utility_storage_df[:, 5];        # Minimum Storage Capacity (MWh)
+    Max_SOC_strg = utility_storage_df[:, 4];        # Maximum Storage Capacity (MWh)
+    Storage_eff = utility_storage_df[:, 8] / 100;   # Storage Efficiency (0 ~ 1)
 
     Enrg_Strg_ini = zeros(utility_num);     # TODO: placeholder
-        
+
     # Utility storage variables
     @variable(mast, Pwr_chrg_Strg_var[UStorage, Time] >= 0)
     @variable(mast, Pwr_dchrg_Strg_var[UStorage, Time] >= 0)
@@ -335,10 +346,10 @@ if en_Uty_Strg
                 + Pwr_chrg_Strg_var[s, t]
                 - Pwr_dchrg_Strg_var[s, t]
     )
-    @constraint(mast, Storage_energy_balance_Initial[s in UStorage], 
-                Enrg_Strg_var[s, 1]
+    @constraint(mast, Storage_energy_balance_Initial[s in UStorage],
+                Enrg_Strg_var[s]
                 == Storage_eff[s] * Enrg_Strg_ini[s]
-                + Pwr_chrg_Strg_var[s,1] 
+                + Pwr_chrg_Strg_var[s,1]
                 - Pwr_dchrg_Strg_var[s,1]
     )
 
@@ -351,7 +362,7 @@ if en_Uty_Strg
     )
 
     # Storage SOC constraints
-    @constraint(mast, Min_SOC_Strg[s in UStorage, t in Time], 
+    @constraint(mast, Min_SOC_Strg[s in UStorage, t in Time],
                 Enrg_Strg_var[s,t] >= Min_SOC_strg[s]
     )
     @constraint(mast, Max_SOC_Strg[s in UStorage, t in Time],
@@ -374,11 +385,11 @@ if en_DR
     M_eu = -1e6;
     # TODO: Need to replace with real data
     # PV_trace_DR{UNode,Time} >= 0;
-    Max_chrg_rate_bat = bus_df[11, 1];      # Maximum Charge Rate (MW/h)
-    Max_dchrg_rate_bat= bus_df[12, 1];      # Maximum Discharge Rate (MW/h)       
-    Min_SOC_bat = bus_df[10, 1];            # Minimum Battery Capacity (MWh)
-    Max_SOC_bat = bus_df[9, 1];             # Maximum Battery Capacity (MWh)
-    Bat_eff = bus_df[13, 1] / 100;          # Battery Efficiency (0 ~ 1)
+    Max_chrg_rate_bat = bus_df[:, 11];      # Maximum Charge Rate (MW/h)
+    Max_dchrg_rate_bat= bus_df[:, 12];      # Maximum Discharge Rate (MW/h)
+    Min_SOC_bat = bus_df[:, 10];            # Minimum Battery Capacity (MWh)
+    Max_SOC_bat = bus_df[:, 9];             # Maximum Battery Capacity (MWh)
+    Bat_eff = bus_df[:, 13] / 100;          # Battery Efficiency (0 ~ 1)
     # alpha{UNode} >= 0;       # TODO: What's alpha?
 
     # Demand response initial conditions
@@ -436,8 +447,8 @@ if en_DR
     @constraint(mast, KKT_bald[p in UNode, t in Time],
         -lambda_pg_var[p,t] + lambda_pb_var[p,t] - mu_pb_var[p,t] == 0);
     @constraint(mast, KKT_ebat[p in UNode, t in 1:(T-1)],
-        lambda_e_var[p,t] 
-        - Bat_eff[p] * lambda_e_var[p,t] 
+        lambda_e_var[p,t]
+        - Bat_eff[p] * lambda_e_var[p,t]
         - mu_el_var[p,t] + mu_eu_var[p,t]
         == 0
     );
@@ -450,16 +461,16 @@ if en_DR
     @constraint(mast, PV_bus_bal[p in UNode, t in Time],
         Pwr_pv_var[p,t] + Pwr_sp_var[p,t] == PV_trace_DR[p,t]);     # ERROR #LINK line 184
     @constraint(mast, Battery_SOC[p in UNode, t in 2:T],
-            Engy_bat_var[p,t] 
-            - Bat_eff[p] * Engy_bat_var[p,t-1] 
-            - Pwr_bat_var[p,t] 
+            Engy_bat_var[p,t]
+            - Bat_eff[p] * Engy_bat_var[p,t-1]
+            - Pwr_bat_var[p,t]
             == 0
     );
     @constraint(mast, Battery_SOC_Initial[p in UNode],
-            Engy_bat_var[p,1] 
-            - Bat_eff[p] * Engy_bat_ini[p] 
-            - Pwr_bat_var[p,1]  
-            == 0 
+            Engy_bat_var[p,1]
+            - Bat_eff[p] * Engy_bat_ini[p]
+            - Pwr_bat_var[p,1]
+            == 0
     );
 
     # Inequality Constraints
@@ -526,24 +537,33 @@ if en_DR
     @constraint(mast, mu_eu_perp_eb_C[p in UNode, t in Time],
             Engy_bat_var[p,t] <= Max_SOC_bat[p] );
 end
+"""
+"""
 
-## Power balance constraint 
-# Use (flag * expression) to control the constraint 
+## Power balance constraint
+# Use (flag ? expression : 0) to control the constraint
+# Use `abs < a small positive` to show two floats are identical.
 @constraint(mast, Power_Balance[n in UNode, t in Time],
+    -1E-3 <= (
         sum(Pwr_Gen_var[g, t] for (g, n) in Gen_Node_links)
         + sum(Pwr_line_var[l1, t] for (l1, n) in Line_end1_Node_links)
-        == Csm_Demand[n, t]
-        + Loss_factor * Csm_Demand[n, t]
-        + sum(Pwr_line_var[l2, t] for (l2, n) in Line_end2_Node_links)
-        + (en_Uty_Strg ? sum((Pwr_chrg_Strg_var[s,t] - Pwr_dchrg_Strg_var[s,t]) for (s, n) in Storage_Node_links) : 0)
-        + (en_DR ? (
-                Pwr_pgp_var[n,t] 
-                + Loss_factor * Pwr_pgp_var[n,t] 
-                - Pwr_pgn_var[n,t] 
+        - (
+            Csm_Demand[n, t]
+            + Loss_factor * Csm_Demand[n, t]
+            + sum(Pwr_line_var[l2, t] for (l2, n) in Line_end2_Node_links)
+            + (en_Uty_Strg ? sum((Pwr_chrg_Strg_var[s,t] - Pwr_dchrg_Strg_var[s,t]) for (s, n) in Storage_Node_links) : 0)
+            + (en_DR ? (
+                Pwr_pgp_var[n,t]
+                + Loss_factor * Pwr_pgp_var[n,t]
+                - Pwr_pgn_var[n,t]
                 + Loss_factor * Pwr_pgn_var[n,t]
                 ) : 0)
+        )
+    ) <= 1E-3
 );
 
+
 ## Optimize
+println("Calculating...");
 optimize!(mast)
-objective_value(mast)
+print("The minimum cost is \$$(objective_value(mast))");
