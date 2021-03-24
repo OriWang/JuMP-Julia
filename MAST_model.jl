@@ -4,15 +4,19 @@ using XLSX, CSV
 
 data_path = joinpath(@__DIR__, "14Gen");
 # generator_df = DataFrame(XLSX.readtable(data_path, "Generator Data"));
-generator_df = DataFrame(CSV.File(joinpath(data_path, "14Gen_generator.csv")));
-generator_df = generator_df[1:end-1, :];       # delete missing data
+generator_df = DataFrame(CSV.File(joinpath(data_path, "14_Gen_generator.csv")));
+generator_df = generator_df[1:end-1, :];       # delete END OF DATA row
 # bus_df = DataFrame(XLSX.readtable(data_path, "Bus Data"));
-bus_df = DataFrame(CSV.File(joinpath(data_path, "14Gen_bus.csv")));
+bus_df = DataFrame(CSV.File(joinpath(data_path, "14_Gen_bus.csv")));
+bus_df = bus_df[1:end-1, :];
 # branch_df = DataFrame(XLSX.readtable(data_path, "Branch Data"));
-branch_df = DataFrame(CSV.File(joinpath(data_path, "14Gen_branch.csv")));
+branch_df = DataFrame(CSV.File(joinpath(data_path, "14_Gen_branch.csv")));
+branch_df = branch_df[1:end-1, :];
 
 # utility_storage_df = DataFrame(XLSX.readtable(data_path, "Utility Storage Data"));
-utility_storage_df = DataFrame(CSV.File(joinpath(data_path, "14Gen_utility.csv")));
+utility_storage_df = DataFrame(CSV.File(joinpath(data_path, "14_Gen_utility.csv")));
+utility_storage_df = utility_storage_df[1:end-1, :];
+##
 
 path_NTNDP = joinpath(@__DIR__, "2013_NTNDP_Plexos_Database");
 path_N_East = joinpath(path_NTNDP, "N_East.csv");
@@ -101,7 +105,8 @@ Demand = zeros(bus_num, T);
 Csm_Demand = zeros(bus_num, T);
 Psm_Demand = zeros(bus_num, T);
 for i in 1:bus_num
-    Demand[i, :] = convert(Array, N_West_df[i, 4:end]) * bus_df[:, 4][i];             # TODO: Use map to replace hard coding
+    # Demand[i, :] = convert(Array, N_West_df[i, 4:end]) * bus_df[:, 4][i];             # TODO: Use map to replace hard coding
+    Demand[i, :] = convert(Array, N_West_df[i, 4:end]) * bus_df[:, 4][i];
     Psm_Demand[i, :] = Demand[i, :] * Prosumer_ratio[i];
     Csm_Demand[i, :] = Demand[i, :] * (1 - Prosumer_ratio[i]);
 end
@@ -161,7 +166,7 @@ println("Line 159 finished");
 # Generator Ramping Constraints, using 'if' to express '==>'
 
 # @constraint(mast, ramp_up[g in G_Syn, t in 2:T],
-#        (Ramp_up[g] < Max_pwr[g]) => {Pwr_Gen_var[g,t] - Pwr_Gen_var[g,t-1] <= Status_var[g,t] * Ramp_up[g]});        # ERROR: Cannot use ||
+#        (Ramp_up[g] < Max_pwr[g]) => {Pwr_Gen_var[g,t] - Pwr_Gen_var[g,t-1] <= Status_var[g,t] * Ramp_up[g]});
 for g in G_Syn, t in 2:T
     if Ramp_up[g] < Max_pwr[g]
         @constraint(mast, Pwr_Gen_var[g,t] - Pwr_Gen_var[g,t-1] <= Status_var[g,t] * Ramp_up[g]);
@@ -238,16 +243,20 @@ println("Line 235 finished.");
 # Thermal limits
 @constraint(mast, thermal_limit_ub[l in ULine, t in Time],
         Pwr_line_var[l,t] <= ThrmLim[l]);
+println("Line 240 finished.")
 @constraint(mast, thermal_limit_lb[l in ULine, t in Time],
         -ThrmLim[l] <= Pwr_line_var[l,t]);
+println("Line 243 finished.")
 
-# AC line angle stability
+""" Skip time consumming part
+# AC line angle stability, COMMENT: Time consumming part""
 @constraint(mast, angle_limit[l in ULine, t in Time],
         Pwr_line_var[l,t] == Susceptance[l] * (
             sum(Angle_line_var[n1,t] for (l,n1) in Line_end1_Node_links)
             - sum(Angle_line_var[n2,t] for (l,n2) in Line_end2_Node_links )
             )
 );
+""";
 println("Line 250 finished");
 
 ## Type2 (PV and Wind) generator additional constraints
@@ -272,7 +281,7 @@ end
 if en_Type3
     # CSP generator parameters
     # Type3 Generators Sets
-    G_T3 = [1, 2];   # findall(i -> i==3, generator_df[:, 18]);         # TODO: Relace with real index later
+    G_T3 = findall(i -> i==3, generator_df[:, 18]);         # TODO: Relace with real index later
 
     # Type3 Generators Cross Sets
     GenT3_Region_links = [(g3, r) for g3 in G_T3 for r in URegion]
@@ -375,7 +384,7 @@ if en_Uty_Strg
     )
 end
 
-print("Line 373 Completed");
+println("Line 373 Completed");
 ## Demand Response
 if en_DR
     # Demand response parameters
@@ -441,8 +450,8 @@ if en_DR
     #   KKT Constraints
     @constraint(mast, KKT_pgp[p in UNode, t in Time],
         lambda_pg_var[p,t] - mu_gp_var[p,t]  == -1);
-    @constraint(mast, KKT_fdin[p in UNode, t in Time],
-        - lambda_pg_var[p,t] - mu_gn_var[p,t]  == alpha[p]);    # ERROR # LINK: Line 190
+    # @constraint(mast, KKT_fdin[p in UNode, t in Time],
+    #     - lambda_pg_var[p,t] - mu_gn_var[p,t]  == alpha[p]);    # ERROR # LINK: Line 190
     @constraint(mast, KKT_pbat[p in UNode, t in Time],
         -lambda_pb_var[p,t] - lambda_e_var[p,t] - mu_pl_var[p,t] + mu_pu_var[p,t] == 0);
     @constraint(mast, KKT_ppv[p in UNode, t in Time],
@@ -542,14 +551,13 @@ if en_DR
     @constraint(mast, mu_eu_perp_eb_C[p in UNode, t in Time],
             Engy_bat_var[p,t] <= Max_SOC_bat[p] );
 end
-"""
-"""
-print("Line 542 completed");
+
+println("Line 542 completed");
 ## Power balance constraint
 # Use (flag ? expression : 0) to control the constraint
 # Use `abs < a small positive` to show two floats are identical.
 @constraint(mast, Power_Balance[n in UNode, t in Time],
-    -1E-3 <= (
+    0 <= (
         sum(Pwr_Gen_var[g, t] for (g, n) in Gen_Node_links)
         + sum(Pwr_line_var[l1, t] for (l1, n) in Line_end1_Node_links)
         - (
@@ -564,7 +572,7 @@ print("Line 542 completed");
                 + Loss_factor * Pwr_pgn_var[n,t]
                 ) : 0)
         )
-    ) #<= 1E-3
+    ) # <= 1E-3
 );
 
 
