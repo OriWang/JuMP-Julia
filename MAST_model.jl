@@ -4,39 +4,45 @@ using XLSX, CSV
 
 data_path = joinpath(@__DIR__, "14Gen");
 # generator_df = DataFrame(XLSX.readtable(data_path, "Generator Data"));
-generator_df = DataFrame(CSV.File(joinpath(data_path, "14_Gen_generator.csv")));
+generator_df = DataFrame(CSV.File(joinpath(data_path, "generator.csv")));
 generator_df = generator_df[1:end-1, :];       # delete END OF DATA row
 # bus_df = DataFrame(XLSX.readtable(data_path, "Bus Data"));
-bus_df = DataFrame(CSV.File(joinpath(data_path, "14_Gen_bus.csv")));
+bus_df = DataFrame(CSV.File(joinpath(data_path, "bus.csv")));
 bus_df = bus_df[1:end-1, :];
 # branch_df = DataFrame(XLSX.readtable(data_path, "Branch Data"));
-branch_df = DataFrame(CSV.File(joinpath(data_path, "14_Gen_branch.csv")));
+branch_df = DataFrame(CSV.File(joinpath(data_path, "branch.csv")));
 branch_df = branch_df[1:end-1, :];
 
 # utility_storage_df = DataFrame(XLSX.readtable(data_path, "Utility Storage Data"));
-utility_storage_df = DataFrame(CSV.File(joinpath(data_path, "14_Gen_utility.csv")));
+utility_storage_df = DataFrame(CSV.File(joinpath(data_path, "utility_storage.csv")));
 utility_storage_df = utility_storage_df[1:end-1, :];
-##
 
-path_NTNDP = joinpath(@__DIR__, "2013_NTNDP_Plexos_Database");
-path_N_East = joinpath(path_NTNDP, "N_East.csv");
-path_N_West = joinpath(path_NTNDP, "N_West.csv");
-path_N_South = joinpath(path_NTNDP, "N_South.csv");
-path_N_North = joinpath(path_NTNDP, "N_North.csv");
-N_East_df = DataFrame(CSV.File(path_N_East, header = 0));
-N_East_load = N_East_df[1, 4:end]       # TODO: Use data for the first day temporarily, change later.
-N_West_df = DataFrame(CSV.File(path_N_West, header = 0));
-N_South_df = DataFrame(CSV.File(path_N_South, header = 0));
-N_North_df = DataFrame(CSV.File(path_N_North, header = 0));
-Demand_df_array = [N_West_df, N_North_df, N_East_df, N_South_df];
+## Read loading data
+function getFileName(region)
+    return "2013 ESOO " * region * "1 Planning 10POE_0910refyr.csv";
+end
+path_NTNDP = joinpath(@__DIR__, "2013_NTNDP_Plexos_Database", "ESOO_2013_Load_Traces");
+regionList = ["NSW", "QLD", "SA", "TAS", "VIC"];
+
+# Read data for each region
+pathOf = Dict();
+dataframeOf = Dict();
+oneDayLoadOf = Dict();
+current_day = 1;
+for region in regionList
+    pathOf[region] = joinpath(path_NTNDP, getFileName(region));
+    dataframeOf[region] = DataFrame(CSV.File(pathOf[region], header = 1));
+    oneDayLoadOf[region] = dataframeOf[region][current_day, 4:end];
+end
+
+
 ## MAST model
 using JuMP, GLPK, LinearAlgebra, DataFrames
 
-# Default Parameters
+# Controller flag parameters
 en_Uty_Strg = size(utility_storage_df)[1] >= 1;
-en_DR = false;
-en_DR_PV = true;
-en_DR_Strg = true;
+en_DR_PV = false;
+en_DR_Strg = false;
 
 # en_Uty_Strg = true;
 # en_DR = true;
@@ -44,23 +50,39 @@ en_DR_Strg = true;
 # en_DR_Strg = true;
 en_Type2 = count(i -> i == 2, generator_df[:, 18]) >= 1;
 en_Type3 = count(i -> i == 3, generator_df[:, 18]) >= 1;
-# set to true temporary to test all code.
+
 
 
 # Set declaration
+function isSyn(techCode)
+    SynGenType = ["HYDR", "BlCT", "OCGT", "BrCT", "CCGT", "CoGen", "Sub Critical", "CST"];
+    AsynGenType = ["WND"];
+    if techCode in SynGenType
+        return true;
+    elseif techCode in AsynGenType
+        return false;
+    else
+        println("Wrong Type");
+        return missing;
+    end
+end
+
 gen_num = length(generator_df[:, 1]);
 UGen = 1:gen_num;
-G_Syn = 1:gen_num;      # TODO: Need to change G_Syn as a subset of UGen
 G_T1 = findall(i -> i==1, generator_df[:, 18]);     # Find the indices of all type 1 generators
+G_Syn = findall(techCode -> isSyn(techCode), generator_df[:, 20]);
 
 bus_num = length(bus_df[:, 1]);
 UNode = 1:bus_num;
+
 branch_num = length(branch_df[:, 1]);
 ULine = 1:branch_num;
-URegion = 1:4;       # TODO: What is URegion?
 
+regionList = bus_df[:, 2];
+region_num = length(Set(regionList))
+URegion = 1:region_num;
 
-T = 24;     # ? Not sure
+T = 24;     # One-hour slots
 Time = 1:T;
 
 # Cross set generation
@@ -99,16 +121,20 @@ ThrmLim = branch_df[:, 8];        # Thermal limit (MVA)
 Susceptance = branch_df[:, 10];   # Susceptance (pu)
 
 # Demand parameters
-# TODO: Not found in excel file, using placeholder instead
-Prosumer_ratio = bus_df[:, 6] / 100;
+alpha = ones(bus_num) - bus_df[:, 6] / 100;
+alpha = ones(bus_num);       # alpha means Consumer demand ratio, set as 1 to simplify.
+Consumer_ratio = alpha;      # use consumer_ratio instead of alpha to be more readable
+en_DR = Consumer_ratio < ones(bus_num);
+
 Demand = zeros(bus_num, T);
 Csm_Demand = zeros(bus_num, T);
 Psm_Demand = zeros(bus_num, T);
+Demand_Trace_Weightage = bus_df[:, 4];
 for i in 1:bus_num
-    # Demand[i, :] = convert(Array, N_West_df[i, 4:end]) * bus_df[:, 4][i];             # TODO: Use map to replace hard coding
-    Demand[i, :] = convert(Array, N_West_df[i, 4:end]) * bus_df[:, 4][i];
-    Psm_Demand[i, :] = Demand[i, :] * Prosumer_ratio[i];
-    Csm_Demand[i, :] = Demand[i, :] * (1 - Prosumer_ratio[i]);
+    region = bus_df[i, 2];
+    Demand[i, :] = convert(Array, oneDayLoadOf[region]) * Demand_Trace_Weightage[i];
+    Csm_Demand[i, :] = Demand[i, :] * Consumer_ratio[i];
+    Psm_Demand[i, :] = Demand[i, :] * (1 - Consumer_ratio[i]);
 end
 
 Loss_factor = 0.1;
@@ -140,17 +166,15 @@ total_cost = sum(
 );
 @objective(mast, Min, total_cost);
 
-# Comment codes to test
+# Comment techCodes to test
 
 
 ## Generator Constraints, Stable Limit
 # Syn Generators
-"""
 @constraint(mast, Gen_max_pwr[g in G_Syn, t in Time],
         Pwr_Gen_var[g,t] <= Max_pwr[g] * Status_var[g,t]);
 @constraint(mast, Gen_min_pwr[g in G_Syn, t in Time],
         Min_pwr[g]*Status_var[g,t] <= Pwr_Gen_var[g,t]);
-"""
 
 # Integer variable linking Constraint
 @constraint(mast, On_Off[g in G_Syn, t in 2:T],
@@ -404,7 +428,6 @@ if en_DR
     Min_SOC_bat = bus_df[:, 10];            # Minimum Battery Capacity (MWh)
     Max_SOC_bat = bus_df[:, 9];             # Maximum Battery Capacity (MWh)
     Bat_eff = bus_df[:, 13] / 100;          # Battery Efficiency (0 ~ 1)
-    # alpha{UNode} >= 0;       # TODO: What's alpha?
 
     # Demand response initial conditions
     # TODO: replace with real data
@@ -450,8 +473,8 @@ if en_DR
     #   KKT Constraints
     @constraint(mast, KKT_pgp[p in UNode, t in Time],
         lambda_pg_var[p,t] - mu_gp_var[p,t]  == -1);
-    # @constraint(mast, KKT_fdin[p in UNode, t in Time],
-    #     - lambda_pg_var[p,t] - mu_gn_var[p,t]  == alpha[p]);    # ERROR # LINK: Line 190
+    @constraint(mast, KKT_fdin[p in UNode, t in Time],
+        - lambda_pg_var[p,t] - mu_gn_var[p,t]  == alpha[p]);
     @constraint(mast, KKT_pbat[p in UNode, t in Time],
         -lambda_pb_var[p,t] - lambda_e_var[p,t] - mu_pl_var[p,t] + mu_pu_var[p,t] == 0);
     @constraint(mast, KKT_ppv[p in UNode, t in Time],
@@ -474,6 +497,7 @@ if en_DR
         Pwr_bal_var[p,t] - Pwr_bat_var[p,t] == Psm_Demand[p,t]);
     @constraint(mast, PV_bus_bal[p in UNode, t in Time],
         Pwr_pv_var[p,t] + Pwr_sp_var[p,t] == PV_trace_DR[p,t]);     # ERROR #LINK line 184
+    println("Line 501 finished")
     @constraint(mast, Battery_SOC[p in UNode, t in 2:T],
             Engy_bat_var[p,t]
             - Bat_eff[p] * Engy_bat_var[p,t-1]
@@ -557,7 +581,7 @@ println("Line 542 completed");
 # Use (flag ? expression : 0) to control the constraint
 # Use `abs < a small positive` to show two floats are identical.
 @constraint(mast, Power_Balance[n in UNode, t in Time],
-    0 <= (
+    -1E-3 <= (
         sum(Pwr_Gen_var[g, t] for (g, n) in Gen_Node_links)
         + sum(Pwr_line_var[l1, t] for (l1, n) in Line_end1_Node_links)
         - (
@@ -572,7 +596,7 @@ println("Line 542 completed");
                 + Loss_factor * Pwr_pgn_var[n,t]
                 ) : 0)
         )
-    ) # <= 1E-3
+    ) # <= 1E4
 );
 
 
