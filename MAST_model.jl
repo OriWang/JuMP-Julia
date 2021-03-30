@@ -3,17 +3,16 @@ using DataFrames
 using XLSX, CSV
 
 data_path = joinpath(@__DIR__, "14Gen");
-# generator_df = DataFrame(XLSX.readtable(data_path, "Generator Data"));
+
 generator_df = DataFrame(CSV.File(joinpath(data_path, "generator.csv")));
 generator_df = generator_df[1:end-1, :];       # delete END OF DATA row
-# bus_df = DataFrame(XLSX.readtable(data_path, "Bus Data"));
+
 bus_df = DataFrame(CSV.File(joinpath(data_path, "bus.csv")));
 bus_df = bus_df[1:end-1, :];
-# branch_df = DataFrame(XLSX.readtable(data_path, "Branch Data"));
+
 branch_df = DataFrame(CSV.File(joinpath(data_path, "branch.csv")));
 branch_df = branch_df[1:end-1, :];
 
-# utility_storage_df = DataFrame(XLSX.readtable(data_path, "Utility Storage Data"));
 utility_storage_df = DataFrame(CSV.File(joinpath(data_path, "utility_storage.csv")));
 utility_storage_df = utility_storage_df[1:end-1, :];
 
