@@ -1,0 +1,4 @@
+name = "MAST"
+uuid = "a93a12c1-8a63-4d76-9cd1-b107c99147b9"
+authors = ["Zhaoguo Wang <WangZhaoguo@yahoo.com>"]
+version = "0.1.0"

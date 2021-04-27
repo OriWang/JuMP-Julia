@@ -1,0 +1,6 @@
+﻿Bus Name,Bus Region,Bus Type,Demand Trace Weightage,Power Factor,Prosumer Demand (%),Rooftop PV Capacity (MW),Feedin Price Ratio,Maximum Battery Capacity (MWh),Minimum Battery Capacity (MWh),Maximum Charge Rate (MW/h),Maximum Discharge Rate (MW/h),Battery Efficiency (%),Minimum Voltage (pu),Maximum Voltage (pu),Base_kV,Demand Trace Name,Wind Trace Name,PV Trace Name,CST Trace Name,Rooftop PV Trace Name
+N_West,Reg1,3,600,0.9,20,0,0,140,0,40,60,100,0.95,1.05,330,N_West,ADE,ADE,ADE,N_West
+N_North,Reg1,1,350,0.9,40,150,0,300,0,75,80,100,0.95,1.05,330,N_North,NQ,NQ,NQ,N_North
+N_East,Reg2,2,0,0.9,0,0,0,0,0,0,0,100,0.95,1.05,330,N_East,SWNSW,SWNSW,SWNSW,N_East
+N_South,Reg2,1,300,0.9,40,230,0,450,0,100,150,100,0.95,1.05,330,N_South,LV,LV,LV,N_South
+,,,,END OF DATA,,,,,,,,,,,,,,,,
