@@ -1,0 +1,7 @@
+﻿Line Name,End 1 Bus Name,End 2 Bus Name,In Service,Resistance (pu),Reactance (pu),Susceptance (pu),Thermal Limit (MVA),Nature of Line,Maximum Angle Limit (degree),
+L1,N_West,N_North,1,0.0056,0.0667,0.38,200,AC,35,7.643256987
+L2,N_West,N_South,1,0.0071,0.0868,0.48,500,AC,35,24.86636831
+L3,N_North,N_South,1,0.0002,0.003,0.021,150,AC,35,0.257831008
+L4,N_North,N_East,1,0.0048,0.05,0.34,300,AC,35,8.594366927
+L5,N_South,N_East,1,0.018,0.122,0.79,500,AC,35,34.9504255
+,,,,END OF DATA,,,,,,

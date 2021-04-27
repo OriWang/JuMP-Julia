@@ -1,0 +1,5 @@
+﻿Utility Storage Name,Location Bus,Connected to Grid,Maximum Storage Capacity (MWh),Minimum Storage Capacity (MWh),Maximum Charge Rate (MW/h),Maximum Discharge Rate (MW/h),Storage Efficiency (%),Plot Color
+Uty_1,N_West,1,140,0,40,60,98,Blue
+Uty_2,N_North,0,300,0,75,80,97,Sienna
+Uty_3,N_South,1,450,0,100,100,99,Green
+,,,,END OF DATA,,,,
