@@ -10,7 +10,9 @@ include("supporting_functions.jl");
 using DataFrames
 using XLSX, CSV
 
-data_path = joinpath(@__DIR__, "..", "data", "Test1");
+test_case = "Test1"     # The folder name of the test case
+
+data_path = joinpath(@__DIR__, "..", "data", test_case);
 
 generator_df = DataFrame(CSV.File(joinpath(data_path, "generator.csv")));
 generator_df = generator_df[1:end - 1, :];       # delete END OF DATA row
@@ -45,6 +47,7 @@ using JuMP, GLPK, LinearAlgebra, DataFrames
 
 # Controller flag parameters
 en_Uty_Strg = size(utility_storage_df)[1] >= 1;
+en_Uty_Strg = false # DEBUG: turn off flags
 en_DR_PV = false;
 en_DR_Strg = false;
 
@@ -86,11 +89,11 @@ T = 24;     # One-hour slots
 Time = 1:T;
 
 # Cross sets links
-Gen_Bus_links  = [(g, b) for g in UGen for b in UBus];
+Gen_Bus_links  = getGenBusLinks(test_case);
 Gen_Region_links = [(g, r) for g in UGen for r in URegion];
 GenT1_Region_links = [(g1, r) for g1 in G_T1 for r in URegion];
-Line_end1_Bus_links = [(l, b) for l in ULine for b in UBus];
-Line_end2_Bus_links = [(l, b) for l in ULine for b in UBus];
+Line_end1_Bus_links = getLineEnd1BusLinks(test_case);
+Line_end2_Bus_links = getLineEnd2BusLinks(test_case);
 Bus_Region_links = [(b, r) for b in UBus for r in URegion];
 
 # Type3 Generators Cross Sets
@@ -106,7 +109,6 @@ C_Var = generator_df[:, 9];     # Variable cost
 
 # Generator parameters
 Max_pwr = generator_df[:, 10];  # Maximum real power
-Max_pwr[1] = 1E10;
 Min_pwr = generator_df[:, 11];  # Minimum real power
 Ramp_up = generator_df[:, 14];  # Ramp up rate
 Ramp_down = generator_df[:, 15];    # Ramp down rate
@@ -296,6 +298,7 @@ difference_array = [(sum(Pwr_Gen_var[g, t] for (g, b) in Gen_Bus_links)
                        ) : 0)
                ) ) for b in UBus, t in Time];
 
+"""
 @constraint(mast, Power_Balance[b in UBus, t in Time],
     0 <= (
         sum(Pwr_Gen_var[g, t] for (g, b) in Gen_Bus_links)
@@ -312,9 +315,30 @@ difference_array = [(sum(Pwr_Gen_var[g, t] for (g, b) in Gen_Bus_links)
                 + Loss_factor * Pwr_pgn_var[b,t]
                 ) : 0)
         )
-    ) <= 1E3
+    ) <= 1E-3
 );
+"""
 
+@constraint(mast, Power_Balance[b in UBus, t in Time],
+    (
+        sum(Pwr_Gen_var[g, t] for (g, b1) in Gen_Bus_links)
+        + sum(Pwr_line_var[l1, t] for (l1, b2) in Line_end1_Bus_links)
+        == (
+            Csm_Demand[b, t]
+            + Loss_factor * Csm_Demand[b, t]
+            + sum(Pwr_line_var[l2, t] for (l2, b3) in Line_end2_Bus_links)
+            + (en_Uty_Strg ? sum((Pwr_chrg_Strg_var[s,t] - Pwr_dchrg_Strg_var[s,t]) for (s, b4) in Storage_Bus_links) : 0)
+            + (en_DR ? (
+                Pwr_pgp_var[b,t]
+                + Loss_factor * Pwr_pgp_var[b,t]
+                - Pwr_pgn_var[b,t]
+                + Loss_factor * Pwr_pgn_var[b,t]
+                ) : 0)
+        )
+    )
+);
+"""
+# DEBUG: Comment constraints for the sake of test
 
 # Comment techCodes to test
 
@@ -335,9 +359,9 @@ difference_array = [(sum(Pwr_Gen_var[g, t] for (g, b) in Gen_Bus_links)
         S_Up_var[g,1] - S_Down_var[g,1]
         == Status_var[g,1] - Status_ini[g]
 );
-println("Line 341 finished");
+println("Line 337 finished");
 
-"""
+
 # Generator Ramping Constraints, using 'if' to express '==>'
 
 # @constraint(mast, ramp_up[g in G_Syn, t in 2:T],
@@ -372,7 +396,6 @@ for g in G_Syn
     end
 end
 println("Line 376 finished.");
-""";
 
 # Generator Minimum Up/Down Time Constraints
 # min_up_Time
@@ -416,7 +439,7 @@ println("Line 412 finished.");
 @constraint(mast, thermal_limit_lb[l in ULine, t in Time],
         -ThrmLim[l] <= Pwr_line_var[l,t]);
 
-"""
+
 # AC line angle stability, COMMENT: Time consumming part, TODO: Need to check the values
 @constraint(mast, angle_limit[l in ULine, t in Time],
         Pwr_line_var[l,t] == Susceptance[l] * (
@@ -425,7 +448,7 @@ println("Line 412 finished.");
             )
 );
 println("Line 428 finished");
-"""; # Need this
+
 
 ## Type2 (PV and Wind) generator additional constraints
 if en_Type2
@@ -618,7 +641,7 @@ if en_DR
 end
 
 println("Line 620 completed");
-
+"""
 
 ## Optimize
 println("Calculating...");
