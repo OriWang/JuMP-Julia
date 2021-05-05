@@ -1,6 +1,9 @@
 """
 DEBUG NOTES: 
 Unknown data: PV_trace_DR
+
+Problem found:
+In test1 and 14Gen, MUT is column P (16); while in ColePaker, MUT is column Q (17)
 """;
 
 include("data_reader.jl");
@@ -10,7 +13,7 @@ include("supporting_functions.jl");
 using DataFrames
 using XLSX, CSV
 
-testCase = "test1"     # The folder name of the test case
+testCase = "ColeParker"     # The folder name of the test case
 
 generator_df = getDataFrame(testCase, "generator");
 bus_df = getDataFrame(testCase, "bus");
@@ -27,7 +30,7 @@ current_day = [2020, 1, 2];
 
 for demandTraceCode in demandTraceList
     # pathOf[demandTraceCode] = getDemandTrace(demandTraceCode);
-    demandTraceDataframeMap[demandTraceCode] = getDemandTrace(demandTraceCode, header = 0);    # For test1 input, there's no header
+    demandTraceDataframeMap[demandTraceCode] = getDemandTrace(demandTraceCode, header=0);    # For test1 input, there's no header
     # oneDayLoadOfDemandTrace[demandTraceCode] = demandTraceDataframeMap[demandTraceCode][current_day, 4:end];
     oneDayLoadOfDemandTrace[demandTraceCode] = getDataForOneDay(current_day, demandTraceDataframeMap[demandTraceCode])
 end
@@ -38,7 +41,7 @@ using JuMP, GLPK, LinearAlgebra, DataFrames
 
 # Controller flag parameters
 en_Uty_Strg = size(utility_storage_df)[1] >= 1;
-en_Uty_Strg = false # DEBUG: turn off flags
+en_Uty_Strg = false;
 en_DR_PV = false;
 en_DR_Strg = false;
 
@@ -83,7 +86,7 @@ Time = 1:T;
 Gen_Bus_links  = getGenBusLinks(testCase);
 Gen_Region_links = [(g, r) for g in UGen for r in URegion];
 GenT1_Region_links = [(g1, r) for g1 in G_T1 for r in URegion];
-Line_end1_Bus_links = getLineEnd1BusLinks(testCase);
+Line_end1_Bus_links = getLineEnd1BusLinks(testCase);    # (Line, End1 bus)
 Line_end2_Bus_links = getLineEnd2BusLinks(testCase);
 Bus_Region_links = [(b, r) for b in UBus for r in URegion];
 
@@ -303,26 +306,36 @@ total_cost = sum(
 """
 
 busGenDict = getBusKeyDict(testCase, "generator");
-busEnd1Dict = getBusKeyDict(testCase, "lineEnd1");
-# busEnd2Dict = getBusKeyDictFromLinks(Line_end2_Bus_links);
-busEnd2Dict = getBusKeyDict(testCase, "lineEnd2");
+bus1LineDict = getBusKeyDict(testCase, "lineEnd1");
+bus2LineDict = getBusKeyDict(testCase, "lineEnd2");
+if en_DR_Strg
+    busStorageDict = getBusKeyDict(testCase, "storage");
+end
+
 @constraint(mast, Power_Balance[b in UBus, t in Time],
     sum(Pwr_Gen_var[g, t] for g in busGenDict[b]) 
-    + sum(Pwr_line_var[l1, t] for l1 in busEnd1Dict[b]) 
+    + sum(Pwr_line_var[l1, t] for l1 in bus1LineDict[b]) 
     == (
         Csm_Demand[b, t]
         + Loss_factor * Csm_Demand[b, t]
-        + sum(Pwr_line_var[l2, t] for l2 in busEnd2Dict[b])
+        + sum(Pwr_line_var[l2, t] for l2 in bus2LineDict[b])
+        + (en_Uty_Strg ? sum((Pwr_chrg_Strg_var[s,t] - Pwr_dchrg_Strg_var[s,t]) for s in busStorageDict[b]) : 0)
+        + (en_DR ? (
+            Pwr_pgp_var[b,t]
+            + Loss_factor * Pwr_pgp_var[b,t]
+            - Pwr_pgn_var[b,t]
+            + Loss_factor * Pwr_pgn_var[b,t]
+            ) : 0)
     )
 );
 
 # difference_array = [(
 #                 (isempty(busGenDict[b]) ? 0 : sum(Pwr_Gen_var[g, t] for g in busGenDict[b]))
-#                + (isempty(busGenDict[b]) ? 0 : sum(Pwr_line_var[l1, t] for l1 in busEnd1Dict[b]))
+#                + (isempty(busGenDict[b]) ? 0 : sum(Pwr_line_var[l1, t] for l1 in bus1LineDict[b]))
 #                - (
 #                    Csm_Demand[b, t]
 #                    + Loss_factor * Csm_Demand[b, t]
-#                    + (isempty(busGenDict[b]) ? 0 : sum(Pwr_line_var[l2, t] for l2 in busEnd2Dict[b]))
+#                    + (isempty(busGenDict[b]) ? 0 : sum(Pwr_line_var[l2, t] for l2 in bus2LineDict[b]))
 #                    + (en_Uty_Strg ? sum((Pwr_chrg_Strg_var[s,t] - Pwr_dchrg_Strg_var[s,t]) for (s, b) in Storage_Bus_links) : 0)
 #                    + (en_DR ? (
 #                        Pwr_pgp_var[b,t]
@@ -332,13 +345,14 @@ busEnd2Dict = getBusKeyDict(testCase, "lineEnd2");
 #                        ) : 0)
 #                ))  for b in UBus, t in Time];
 
-# DEBUG: Comment constraints for the sake of test
 
-# Comment techCodes to test
 
 
 ## Generator Constraints, Stable Limit
 # Syn Generators
+if typeof(Max_pwr[1]) == String
+    Max_pwr = parse.(Float64, Max_pwr);
+end
 @constraint(mast, Gen_max_pwr[g in G_Syn, t in Time],
         Pwr_Gen_var[g,t] <= Max_pwr[g] * Status_var[g,t]);
 @constraint(mast, Gen_min_pwr[g in G_Syn, t in Time],
@@ -395,7 +409,7 @@ println("Line 376 finished.");
 # min_up_Time
 for g in G_Syn, t in MUT[g]:T
     if MUT[g] > 1
-        @constraint(mast, Status_var[g,t] >= sum(S_Up_var[g, t - t1] for t1 in 0 : MUT[g] - 1));
+        @constraint(mast, Status_var[g,t] >= sum(S_Up_var[g, t - t1] for t1 in 0:MUT[g] - 1));
     end
 end
 
@@ -410,12 +424,12 @@ println("Line 394 finished");
 # min_down_Time
 for g in G_Syn, t in MDT[g]:T
     if MDT[g] > 1
-        @constraint(mast, Status_var[g,t] <= Units[g] - sum(S_Down_var[g,t - t1] for t1 in 0 : MDT[g] - 1));
+        @constraint(mast, Status_var[g,t] <= Units[g] - sum(S_Down_var[g,t - t1] for t1 in 0:MDT[g] - 1));
     end
 end
 
 # min_down_Time_ini
-for g in G_Syn, t in 1:MDT[g]-1
+for g in G_Syn, t in 1:MDT[g] - 1
     if MDT[g] > 1
         @constraint(mast, Status_var[g,t] <= Units[g] - sum(S_Down_var[g, t - t1] for t1 in 0:t - 1) - MDT_ini[g,t]);
     end
@@ -436,10 +450,12 @@ println("Line 412 finished.");
 
 
 # AC line angle stability, COMMENT: Time consumming part, TODO: Need to check the values
+lineBus1Dict = getLineBus1Dict(testCase);
+lineBus2Dict = getLineBus2Dict(testCase);
 @constraint(mast, angle_limit[l in ULine, t in Time],
         Pwr_line_var[l,t] == Susceptance[l] * (
-            sum(Angle_line_var[n1,t] for (l, n1) in Line_end1_Bus_links)
-            - sum(Angle_line_var[n2,t] for (l, n2) in Line_end2_Bus_links)
+            sum(Angle_line_var[b1,t] for b1 in lineBus1Dict[l])
+            - sum(Angle_line_var[b2,t] for b2 in lineBus2Dict[l])
             )
 );
 println("Line 428 finished");
@@ -636,7 +652,7 @@ if en_DR
 end
 
 println("Line 620 completed");
-"""
+
 
 ## Optimize
 println("Calculating...");

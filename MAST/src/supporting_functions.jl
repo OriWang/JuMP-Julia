@@ -59,6 +59,7 @@ function getDataForOneDay(dateArray, longTermData)
 end
 
 
+# Functions to get link list
 function getGenBusLinks(testCase)
     generator_df = getDataFrame(testCase, "generator");
     gen_num = length(generator_df[:, 1]);
@@ -80,13 +81,13 @@ end
 
 function getLineEnd1BusLinks(testCase)
     branch_df = getDataFrame(testCase, "branch");
-    line_num = length(branch_df[:, 1]);
+    lineNum = length(branch_df[:, 1]);
 
     bus_df = getDataFrame(testCase, "bus");
 
     links = [];
 
-    for i in 1:line_num
+    for i in 1:lineNum
         end1BusName = branch_df[i, 2];
         end1BusId = findfirst(x -> x == end1BusName, bus_df[:, 1]);
         push!(links, (i, end1BusId))
@@ -98,13 +99,13 @@ end
 
 function getLineEnd2BusLinks(testCase)
     branch_df = getDataFrame(testCase, "branch");
-    line_num = length(branch_df[:, 1]);
+    lineNum = length(branch_df[:, 1]);
 
     bus_df = getDataFrame(testCase, "bus");
 
     links = [];
 
-    for i in 1:line_num
+    for i in 1:lineNum
         end2BusName = branch_df[i, 3];
         end2BusId = findfirst(x -> x == end2BusName, bus_df[:, 1]);
         push!(links, (i, end2BusId))
@@ -113,18 +114,41 @@ function getLineEnd2BusLinks(testCase)
     return links
 end
 
+
+function getStorageBusLinks(testCase)
+    storage_df = getDataFrame(testCase, "utility_storage");
+    storageNum = length(storage_df[:, 1]);
+
+    bus_df = getDataFrame(testCase, "bus");
+
+    links = [];
+
+    for i in 1:storageNum
+        busName = storage_df[i, 2];
+        busId = findfirst(x -> x == busName, bus_df[:, 1]);
+        push!(links, (i, busId))
+    end
+
+    return links
+end
+
+
+# Functions to get dictionary
 function getBusKeyDict(testCase, valueMetric)
     bus_df = getDataFrame(testCase, "bus");
     busNum = length(bus_df[:, 1]);
     linkArray = [];
-    if valueMetric == "generator"
+
+    if lowercase(valueMetric) in ["generator", "gen"]
         linkArray = getGenBusLinks(testCase);
-    elseif valueMetric == "lineEnd1"
+    elseif lowercase(valueMetric) in ["lineend1", "branchend1", "line_end1", "branch_end1", "end1"]
         linkArray = getLineEnd1BusLinks(testCase);
-    elseif valueMetric == "lineEnd2"
+    elseif lowercase(valueMetric) in ["lineend2", "branchend2", "line_end2", "branch_end2", "end2"]
         linkArray = getLineEnd2BusLinks(testCase);
+    elseif lowercase(valueMetric) in ["storage", "utility_storage", "utilitystorage", "strg", "uty_strg", "utystrg"]
+        linkArray = getStorageBusLinks(testCase);
     else 
-        println("ERROR: Arg 2 should be 'generator', 'lineEnd1', or 'lineEnd2'.");
+        println("ERROR: Arg 2 should be one of 'generator', 'lineEnd1', 'lineEnd2' or 'storage'.");
         return;
     end
     result = Dict()
@@ -140,6 +164,45 @@ function getBusKeyDict(testCase, valueMetric)
     end
     return result
 end
+
+
+function getLineBus1Dict(testCase)
+    branch_df = getDataFrame(testCase, "branch");
+    lineNum = length(branch_df[:, 1])
+
+    linkArray = getLineEnd1BusLinks(testCase);
+
+    result = Dict()
+    for i in 1:lineNum
+        result[i] = [];
+    end
+
+    # line - end1bus dictionary must be a one-to-one mapping. Use array as value to avoid code change
+    for (line, bus1) in linkArray
+        result[line] = append!(result[line], bus1);
+    end
+    return result;
+end
+
+
+function getLineBus2Dict(testCase)
+    branch_df = getDataFrame(testCase, "branch");
+    lineNum = length(branch_df[:, 1])
+
+    linkArray = getLineEnd2BusLinks(testCase);
+
+    result = Dict()
+    for i in 1:lineNum
+        result[i] = [];
+    end
+
+    # line - end1bus dictionary must be a one-to-one mapping. Use array as value to avoid code change
+    for (line, bus2) in linkArray
+        result[line] = append!(result[line], bus2);
+    end
+    return result;
+end
+
 
 function getBusKeyDictFromLinks(linkArray)
     bus_df = getDataFrame(testCase, "bus");
