@@ -10,21 +10,12 @@ include("supporting_functions.jl");
 using DataFrames
 using XLSX, CSV
 
-test_case = "Test1"     # The folder name of the test case
+testCase = "test1"     # The folder name of the test case
 
-data_path = joinpath(@__DIR__, "..", "data", test_case);
-
-generator_df = DataFrame(CSV.File(joinpath(data_path, "generator.csv")));
-generator_df = generator_df[1:end - 1, :];       # delete END OF DATA row
-
-bus_df = DataFrame(CSV.File(joinpath(data_path, "bus.csv")));
-bus_df = bus_df[1:end - 1, :];
-
-branch_df = DataFrame(CSV.File(joinpath(data_path, "branch.csv")));
-branch_df = branch_df[1:end - 1, :];
-
-utility_storage_df = DataFrame(CSV.File(joinpath(data_path, "utility_storage.csv")));
-utility_storage_df = utility_storage_df[1:end - 1, :];
+generator_df = getDataFrame(testCase, "generator");
+bus_df = getDataFrame(testCase, "bus");
+branch_df = getDataFrame(testCase, "branch");
+utility_storage_df = getDataFrame(testCase, "utility_storage")
 
 demandTraceList = bus_df[:, 17];
 
@@ -89,11 +80,11 @@ T = 24;     # One-hour slots
 Time = 1:T;
 
 # Cross sets links
-Gen_Bus_links  = getGenBusLinks(test_case);
+Gen_Bus_links  = getGenBusLinks(testCase);
 Gen_Region_links = [(g, r) for g in UGen for r in URegion];
 GenT1_Region_links = [(g1, r) for g1 in G_T1 for r in URegion];
-Line_end1_Bus_links = getLineEnd1BusLinks(test_case);
-Line_end2_Bus_links = getLineEnd2BusLinks(test_case);
+Line_end1_Bus_links = getLineEnd1BusLinks(testCase);
+Line_end2_Bus_links = getLineEnd2BusLinks(testCase);
 Bus_Region_links = [(b, r) for b in UBus for r in URegion];
 
 # Type3 Generators Cross Sets
@@ -139,6 +130,11 @@ Demand = zeros(bus_num, T);
 Csm_Demand = zeros(bus_num, T);
 Psm_Demand = zeros(bus_num, T);
 Demand_Trace_Weightage = bus_df[:, 4];
+busRegionCount = length(Set(bus_df[:, 2]));
+if round(sum(Demand_Trace_Weightage) / busRegionCount) == 100
+    # weightage is written in percentage, so divided by 100
+    Demand_Trace_Weightage /= 100;
+end
 for i in 1:bus_num
     demandTrace = bus_df[i, 17];
     Demand[i, :] = convert(Array, oneDayLoadOfDemandTrace[demandTrace]) * Demand_Trace_Weightage[i];
@@ -283,20 +279,7 @@ total_cost = sum(
 # Use (flag ? expression : 0) to control the constraint
 # Use `abs < a small positive` to show two floats are identical.
 
-difference_array = [(sum(Pwr_Gen_var[g, t] for (g, b) in Gen_Bus_links)
-               + sum(Pwr_line_var[l1, t] for (l1, b) in Line_end1_Bus_links)
-               - (
-                   Csm_Demand[b, t]
-                   + Loss_factor * Csm_Demand[b, t]
-                   + sum(Pwr_line_var[l2, t] for (l2, b) in Line_end2_Bus_links)
-                   + (en_Uty_Strg ? sum((Pwr_chrg_Strg_var[s,t] - Pwr_dchrg_Strg_var[s,t]) for (s, b) in Storage_Bus_links) : 0)
-                   + (en_DR ? (
-                       Pwr_pgp_var[b,t]
-                       + Loss_factor * Pwr_pgp_var[b,t]
-                       - Pwr_pgn_var[b,t]
-                       + Loss_factor * Pwr_pgn_var[b,t]
-                       ) : 0)
-               ) ) for b in UBus, t in Time];
+
 
 """
 @constraint(mast, Power_Balance[b in UBus, t in Time],
@@ -319,25 +302,36 @@ difference_array = [(sum(Pwr_Gen_var[g, t] for (g, b) in Gen_Bus_links)
 );
 """
 
+busGenDict = getBusKeyDict(testCase, "generator");
+busEnd1Dict = getBusKeyDict(testCase, "lineEnd1");
+# busEnd2Dict = getBusKeyDictFromLinks(Line_end2_Bus_links);
+busEnd2Dict = getBusKeyDict(testCase, "lineEnd2");
 @constraint(mast, Power_Balance[b in UBus, t in Time],
-    (
-        sum(Pwr_Gen_var[g, t] for (g, b1) in Gen_Bus_links)
-        + sum(Pwr_line_var[l1, t] for (l1, b2) in Line_end1_Bus_links)
-        == (
-            Csm_Demand[b, t]
-            + Loss_factor * Csm_Demand[b, t]
-            + sum(Pwr_line_var[l2, t] for (l2, b3) in Line_end2_Bus_links)
-            + (en_Uty_Strg ? sum((Pwr_chrg_Strg_var[s,t] - Pwr_dchrg_Strg_var[s,t]) for (s, b4) in Storage_Bus_links) : 0)
-            + (en_DR ? (
-                Pwr_pgp_var[b,t]
-                + Loss_factor * Pwr_pgp_var[b,t]
-                - Pwr_pgn_var[b,t]
-                + Loss_factor * Pwr_pgn_var[b,t]
-                ) : 0)
-        )
+    sum(Pwr_Gen_var[g, t] for g in busGenDict[b]) 
+    + sum(Pwr_line_var[l1, t] for l1 in busEnd1Dict[b]) 
+    == (
+        Csm_Demand[b, t]
+        + Loss_factor * Csm_Demand[b, t]
+        + sum(Pwr_line_var[l2, t] for l2 in busEnd2Dict[b])
     )
 );
-"""
+
+# difference_array = [(
+#                 (isempty(busGenDict[b]) ? 0 : sum(Pwr_Gen_var[g, t] for g in busGenDict[b]))
+#                + (isempty(busGenDict[b]) ? 0 : sum(Pwr_line_var[l1, t] for l1 in busEnd1Dict[b]))
+#                - (
+#                    Csm_Demand[b, t]
+#                    + Loss_factor * Csm_Demand[b, t]
+#                    + (isempty(busGenDict[b]) ? 0 : sum(Pwr_line_var[l2, t] for l2 in busEnd2Dict[b]))
+#                    + (en_Uty_Strg ? sum((Pwr_chrg_Strg_var[s,t] - Pwr_dchrg_Strg_var[s,t]) for (s, b) in Storage_Bus_links) : 0)
+#                    + (en_DR ? (
+#                        Pwr_pgp_var[b,t]
+#                        + Loss_factor * Pwr_pgp_var[b,t]
+#                        - Pwr_pgn_var[b,t]
+#                        + Loss_factor * Pwr_pgn_var[b,t]
+#                        ) : 0)
+#                ))  for b in UBus, t in Time];
+
 # DEBUG: Comment constraints for the sake of test
 
 # Comment techCodes to test
@@ -426,6 +420,7 @@ for g in G_Syn, t in 1:MDT[g]-1
         @constraint(mast, Status_var[g,t] <= Units[g] - sum(S_Down_var[g, t - t1] for t1 in 0:t - 1) - MDT_ini[g,t]);
     end
 end
+
 
 # Maximum limit on ON units
 @constraint(mast, max_ONunits[g in UGen, t in Time],

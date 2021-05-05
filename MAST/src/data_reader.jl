@@ -4,10 +4,26 @@ using DataFrames
 using XLSX
 using CSV
 
-folderPath = joinpath(@__DIR__, "..", "data", "2013_NTNDP_Plexos_Database");
+loadTraceFolderPath = joinpath(@__DIR__, "..", "data", "2013_NTNDP_Plexos_Database");
+
+function parameterFolderPath(testCase) 
+    parameterFolderPath = data_path = joinpath(@__DIR__, "..", "data", testCase);
+end
+
+function getDataFrame(testCase, metric)
+    dataPath = parameterFolderPath(testCase);
+    if !(lowercase(metric) in ["generator", "bus", "branch", "svc", "utility_storage"])
+        println("ERROR: Parameter 2: metric is invalid.");
+        return;
+    end
+    fileName = metric * ".csv";      # String concatenate
+    dataframe = DataFrame(CSV.File(joinpath(dataPath, fileName)));
+    dataframe = dataframe[1:end - 1, :];       # delete END OF DATA row
+    return dataframe;
+end
 
 function getPVTrace(trace; header)
-    filePath = folderPath;
+    filePath = loadTraceFolderPath;
     if trace == "NQ"
         filePath = joinpath(filePath,"Solar_Trace", "NQ Solar Real PV.csv");
     elseif trace == "CQ"
@@ -56,27 +72,27 @@ end
 
 
 function getDemandTrace(trace; header)
-    filePath = folderPath;
+    filePath = loadTraceFolderPath;
     if trace == "QLD"
-        filePath = joinpath(folderPath, "ESOO_2013_Load_Traces", "2013 ESOO QLD1 Planning 10POE_0910refyr.csv");
+        filePath = joinpath(loadTraceFolderPath, "ESOO_2013_Load_Traces", "2013 ESOO QLD1 Planning 10POE_0910refyr.csv");
     elseif trace == "NSW"
-        filePath = joinpath(folderPath, "ESOO_2013_Load_Traces", "2013 ESOO NSW1 Planning 10POE_0910refyr.csv");
-    elseif trace == "'VIC"
-        filePath = joinpath(folderPath, "ESOO_2013_Load_Traces", "2013 ESOO VIC1 Planning 10POE_0910refyr.csv");
+        filePath = joinpath(loadTraceFolderPath, "ESOO_2013_Load_Traces", "2013 ESOO NSW1 Planning 10POE_0910refyr.csv");
+    elseif trace == "VIC"
+        filePath = joinpath(loadTraceFolderPath, "ESOO_2013_Load_Traces", "2013 ESOO VIC1 Planning 10POE_0910refyr.csv");
     elseif trace == "SA"
-        filePath = joinpath(folderPath, "ESOO_2013_Load_Traces", "2013 ESOO SA1 Planning 10POE_0910refyr.csv");
+        filePath = joinpath(loadTraceFolderPath, "ESOO_2013_Load_Traces", "2013 ESOO SA1 Planning 10POE_0910refyr.csv");
     elseif trace == "TAS"
-        filePath = joinpath(folderPath, "ESOO_2013_Load_Traces", "2013 ESOO TAS1 Planning 10POE_0910refyr.csv");
+        filePath = joinpath(loadTraceFolderPath, "ESOO_2013_Load_Traces", "2013 ESOO TAS1 Planning 10POE_0910refyr.csv");
     elseif trace == "N_North"
-        filePath = joinpath(folderPath, "N_North.csv");
+        filePath = joinpath(loadTraceFolderPath, "N_North.csv");
     elseif trace == "N_South"
-        filePath = joinpath(folderPath, "N_South.csv");
+        filePath = joinpath(loadTraceFolderPath, "N_South.csv");
     elseif trace == "N_East"
-        filePath = joinpath(folderPath, "N_East.csv");
+        filePath = joinpath(loadTraceFolderPath, "N_East.csv");
     elseif trace == "N_West"
-        filePath = joinpath(folderPath, "N_West.csv");
+        filePath = joinpath(loadTraceFolderPath, "N_West.csv");
     else
-        filePath = joinpath(folderPath, trace * ".csv");
+        filePath = joinpath(loadTraceFolderPath, trace * ".csv");
     end
 
     dataframe = DataFrame(CSV.File(filePath, header=header));
@@ -85,7 +101,7 @@ end
 
 
 function getWindTrace(trace; header)
-    filePath = folderPath;
+    filePath = loadTraceFolderPath;
     if trace == "NQ"
         filePath = joinpath(filePath,"0910_Wind_Traces" ,"NQ T1.csv");
     elseif trace == "CQ"
@@ -131,7 +147,6 @@ function getWindTrace(trace; header)
     dataframe = DataFrame(CSV.File(filePath, header=header));
     return dataframe;
 end # End of function
-
 
 
 

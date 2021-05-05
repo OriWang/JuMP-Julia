@@ -2,6 +2,8 @@ using Dates
 using Query
 using DataFrames, CSV
 
+include("data_reader.jl");
+
 function isSyn(techCode)
     SynGenType = ["HYDR", "BlCT", "OCGT", "BrCT", "CCGT", "CoGen", "Sub Critical", "CST"];
     AsynGenType = ["WND"];
@@ -27,9 +29,16 @@ end
 
 
 function getDataForOneDay(dateArray, longTermData)
-    year = dateArray[1];
-    month = dateArray[2];
-    day = dateArray[3];
+    # If year, month, day are String value, change the input dateArray to String
+    if typeof(longTermData[2, 1]) == String
+        year = string(dateArray[1]);
+        month = string(dateArray[2]);
+        day = string(dateArray[3]);
+    elseif typeof(longTermData[2, 1]) == Int64
+        year = dateArray[1];
+        month = dateArray[2];
+        day = dateArray[3];
+    end
     if String.(names(longTermData))[1] == "Column1"
         queryResult = @from i in longTermData begin
                         @where i.Column1 == year && i.Column2 == month && i.Column3 == day
@@ -51,14 +60,10 @@ end
 
 
 function getGenBusLinks(testCase)
-    data_path = joinpath(@__DIR__, "..", "data", testCase);
-
-    generator_df = DataFrame(CSV.File(joinpath(data_path, "generator.csv")))
-    generator_df = generator_df[1:end - 1, :];       # delete END OF DATA row
+    generator_df = getDataFrame(testCase, "generator");
     gen_num = length(generator_df[:, 1]);
 
-    bus_df = DataFrame(CSV.File(joinpath(data_path, "bus.csv")));
-    bus_df = bus_df[1:end - 1, :];
+    bus_df = getDataFrame(testCase, "bus");
     bus_num = length(bus_df[:, 1]);
 
     links = [];
@@ -74,14 +79,10 @@ end
 
 
 function getLineEnd1BusLinks(testCase)
-    data_path = joinpath(@__DIR__, "..", "data", testCase);
-
-    branch_df = DataFrame(CSV.File(joinpath(data_path, "branch.csv")))
-    branch_df = branch_df[1:end - 1, :];       # delete END OF DATA row
+    branch_df = getDataFrame(testCase, "branch");
     line_num = length(branch_df[:, 1]);
 
-    bus_df = DataFrame(CSV.File(joinpath(data_path, "bus.csv")));
-    bus_df = bus_df[1:end - 1, :];
+    bus_df = getDataFrame(testCase, "bus");
 
     links = [];
 
@@ -96,14 +97,10 @@ end
 
 
 function getLineEnd2BusLinks(testCase)
-    data_path = joinpath(@__DIR__, "..", "data", testCase);
-
-    branch_df = DataFrame(CSV.File(joinpath(data_path, "branch.csv")))
-    branch_df = branch_df[1:end - 1, :];       # delete END OF DATA row
+    branch_df = getDataFrame(testCase, "branch");
     line_num = length(branch_df[:, 1]);
 
-    bus_df = DataFrame(CSV.File(joinpath(data_path, "bus.csv")));
-    bus_df = bus_df[1:end - 1, :];
+    bus_df = getDataFrame(testCase, "bus");
 
     links = [];
 
@@ -114,5 +111,50 @@ function getLineEnd2BusLinks(testCase)
     end
 
     return links
+end
+
+function getBusKeyDict(testCase, valueMetric)
+    bus_df = getDataFrame(testCase, "bus");
+    busNum = length(bus_df[:, 1]);
+    linkArray = [];
+    if valueMetric == "generator"
+        linkArray = getGenBusLinks(testCase);
+    elseif valueMetric == "lineEnd1"
+        linkArray = getLineEnd1BusLinks(testCase);
+    elseif valueMetric == "lineEnd2"
+        linkArray = getLineEnd2BusLinks(testCase);
+    else 
+        println("ERROR: Arg 2 should be 'generator', 'lineEnd1', or 'lineEnd2'.");
+        return;
+    end
+    result = Dict()
+
+    # Set empty array as value for buses without a generator connected.
+    for i in 1:busNum
+        result[i] = [];
+    end
+
+    for (value, bus) in linkArray
+        # bus must exists in the keys because all buses are added.
+        result[bus] = append!(result[bus], value)
+    end
+    return result
+end
+
+function getBusKeyDictFromLinks(linkArray)
+    bus_df = getDataFrame(testCase, "bus");
+    busNum = length(bus_df[:, 1]);
+
+    result = Dict()
+
+    # Set empty array as value for buses without a generator connected.
+    for i in 1:busNum
+        result[i] = [];
+    end
+
+    for (value, bus) in linkArray
+        result[bus] = append!(result[bus], value);
+    end
+    return result;
 end
 
