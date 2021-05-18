@@ -4,16 +4,19 @@ Unknown data: PV_trace_DR
 
 Problem found:
 In test1 and 14Gen, MUT is column P (16); while in ColePaker, MUT is column Q (17)
+Column C of ColeParker.generator seems to be extra one.
+Remove Column C (no header) from generator.csv
 """;
 
 include("data_reader.jl");
 include("supporting_functions.jl");
+include("constants.jl");
 
 ## Load data
 using DataFrames
 using XLSX, CSV
 
-testCase = "ColeParker"     # The folder name of the test case
+testCase = "Test1"     # The folder name of the test case
 
 generator_df = getDataFrame(testCase, "generator");
 bus_df = getDataFrame(testCase, "bus");
@@ -30,7 +33,7 @@ current_day = [2020, 1, 2];
 
 for demandTraceCode in demandTraceList
     # pathOf[demandTraceCode] = getDemandTrace(demandTraceCode);
-    demandTraceDataframeMap[demandTraceCode] = getDemandTrace(demandTraceCode, header=0);    # For test1 input, there's no header
+    demandTraceDataframeMap[demandTraceCode] = getDemandTrace(demandTraceCode);
     # oneDayLoadOfDemandTrace[demandTraceCode] = demandTraceDataframeMap[demandTraceCode][current_day, 4:end];
     oneDayLoadOfDemandTrace[demandTraceCode] = getDataForOneDay(current_day, demandTraceDataframeMap[demandTraceCode])
 end
@@ -57,17 +60,17 @@ en_Type3 = count(i -> i == 3, generator_df[:, 18]) >= 1;
 # Set declaration
 
 
-gen_num = length(generator_df[:, 1]);
+gen_num = size(generator_df, 1)     # Number of rows
 UGen = 1:gen_num;
 G_T1 = findall(i -> i == 1, generator_df[:, 18]);     # Find the indices of all generators for each type
 G_T2  = findall(i -> i == 2, generator_df[:, 18]);    # Type2 generators sets
 G_T3 = findall(i -> i == 3, generator_df[:, 18]);     # Type3 generators sets
-G_Syn = findall(techCode -> isSyn(techCode), generator_df[:, 20]);      # Synchronous generators sets
+G_Syn = findall(techCode -> isSyn(techCode), generator_df[:, generationTechColumn]);      # Synchronous generators sets
 
-bus_num = length(bus_df[:, 1]);
+bus_num = size(bus_df, 1);
 UBus = 1:bus_num;
 
-branch_num = length(branch_df[:, 1]);
+branch_num = size(branch_df, 1);
 ULine = 1:branch_num;
 
 regionList = bus_df[:, 2];
@@ -150,7 +153,8 @@ PReserve_factor = 0.1;
 
 # Type2 Generators Parameters
 if en_Type2
-    Resource_trace_T2 = 200 * ones(length(G_T2), T);     # matrix_generator_x_time[G_T2, Time]    # TODO: replace the placeholder
+    Resource_trace_T2 = zeros(gen_num, T);     # matrix_generator_x_time[G_T2, Time]    # TODO: replace the placeholder
+    Resource_trace_T2[G_T2, Time] .= 200;
 end
 
 # Type3 Generators Parameters
@@ -201,6 +205,7 @@ end
 
 ## Model defination
 mast = Model(GLPK.Optimizer);
+# GLPK.set_obj_dir(mast, GLPK.interior)
 
 # Generator Decision variable
 @variable(mast, 0 <= Status_var[g in UGen, t in Time] <= Units[g], Int);
@@ -269,6 +274,10 @@ if en_DR
 end
 
 ## Objective function
+if typeof(C_Var[1]) == String 
+    C_Var = parse.(Float64, C_Var);
+end 
+
 total_cost = sum(
     C_Fix[g] * Status_var[g, t]
     + C_Su[g] * S_Up_var[g, t]
@@ -280,35 +289,10 @@ total_cost = sum(
 
 ## Power balance constraint
 # Use (flag ? expression : 0) to control the constraint
-# Use `abs < a small positive` to show two floats are identical.
-
-
-
-"""
-@constraint(mast, Power_Balance[b in UBus, t in Time],
-    0 <= (
-        sum(Pwr_Gen_var[g, t] for (g, b) in Gen_Bus_links)
-        + sum(Pwr_line_var[l1, t] for (l1, b) in Line_end1_Bus_links)
-        - (
-            Csm_Demand[b, t]
-            + Loss_factor * Csm_Demand[b, t]
-            + sum(Pwr_line_var[l2, t] for (l2, b) in Line_end2_Bus_links)
-            + (en_Uty_Strg ? sum((Pwr_chrg_Strg_var[s,t] - Pwr_dchrg_Strg_var[s,t]) for (s, b) in Storage_Bus_links) : 0)
-            + (en_DR ? (
-                Pwr_pgp_var[b,t]
-                + Loss_factor * Pwr_pgp_var[b,t]
-                - Pwr_pgn_var[b,t]
-                + Loss_factor * Pwr_pgn_var[b,t]
-                ) : 0)
-        )
-    ) <= 1E-3
-);
-"""
-
 busGenDict = getBusKeyDict(testCase, "generator");
 bus1LineDict = getBusKeyDict(testCase, "lineEnd1");
 bus2LineDict = getBusKeyDict(testCase, "lineEnd2");
-if en_DR_Strg
+if en_Uty_Strg
     busStorageDict = getBusKeyDict(testCase, "storage");
 end
 
@@ -329,23 +313,6 @@ end
     )
 );
 
-# difference_array = [(
-#                 (isempty(busGenDict[b]) ? 0 : sum(Pwr_Gen_var[g, t] for g in busGenDict[b]))
-#                + (isempty(busGenDict[b]) ? 0 : sum(Pwr_line_var[l1, t] for l1 in bus1LineDict[b]))
-#                - (
-#                    Csm_Demand[b, t]
-#                    + Loss_factor * Csm_Demand[b, t]
-#                    + (isempty(busGenDict[b]) ? 0 : sum(Pwr_line_var[l2, t] for l2 in bus2LineDict[b]))
-#                    + (en_Uty_Strg ? sum((Pwr_chrg_Strg_var[s,t] - Pwr_dchrg_Strg_var[s,t]) for (s, b) in Storage_Bus_links) : 0)
-#                    + (en_DR ? (
-#                        Pwr_pgp_var[b,t]
-#                        + Loss_factor * Pwr_pgp_var[b,t]
-#                        - Pwr_pgn_var[b,t]
-#                        + Loss_factor * Pwr_pgn_var[b,t]
-#                        ) : 0)
-#                ))  for b in UBus, t in Time];
-
-
 
 
 ## Generator Constraints, Stable Limit
@@ -353,10 +320,13 @@ end
 if typeof(Max_pwr[1]) == String
     Max_pwr = parse.(Float64, Max_pwr);
 end
+
 @constraint(mast, Gen_max_pwr[g in G_Syn, t in Time],
         Pwr_Gen_var[g,t] <= Max_pwr[g] * Status_var[g,t]);
+
 @constraint(mast, Gen_min_pwr[g in G_Syn, t in Time],
         Min_pwr[g] * Status_var[g,t] <= Pwr_Gen_var[g,t]);
+
 
 # Integer variable linking Constraint
 @constraint(mast, On_Off[g in G_Syn, t in 2:T],
@@ -450,6 +420,10 @@ println("Line 412 finished.");
 
 
 # AC line angle stability, COMMENT: Time consumming part, TODO: Need to check the values
+if typeof(Susceptance[1]) == String 
+    Susceptance = parse.(Float64, Susceptance)
+end
+
 lineBus1Dict = getLineBus1Dict(testCase);
 lineBus2Dict = getLineBus2Dict(testCase);
 @constraint(mast, angle_limit[l in ULine, t in Time],
@@ -653,8 +627,14 @@ end
 
 println("Line 620 completed");
 
-
 ## Optimize
 println("Calculating...");
 optimize!(mast)
+# GLPK.glp_interior(mast)
+GLPK.glp_interior(mast)
+# param = GLPK.glp_iptcp()
+# GLPK.glp_init_iptcp(param)
+# param.msg_lev = GLPK.GLP_MSG_ERR
+# GLPK.glp_interior(mast, param)
+
 print("The minimum cost is \$$(objective_value(mast))");

@@ -12,7 +12,7 @@ function isSyn(techCode)
     elseif techCode in AsynGenType
         return false;
     else
-        println("Wrong Type");
+        println("Wrong Code: $techCode");
         return missing;
     end
 end

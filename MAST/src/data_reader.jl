@@ -71,7 +71,7 @@ function getPVTrace(trace; header)
 end
 
 
-function getDemandTrace(trace; header)
+function getDemandTrace(trace)
     filePath = loadTraceFolderPath;
     if trace == "QLD"
         filePath = joinpath(loadTraceFolderPath, "ESOO_2013_Load_Traces", "2013 ESOO QLD1 Planning 10POE_0910refyr.csv");
@@ -95,7 +95,11 @@ function getDemandTrace(trace; header)
         filePath = joinpath(loadTraceFolderPath, trace * ".csv");
     end
 
-    dataframe = DataFrame(CSV.File(filePath, header=header));
+    dataframe = DataFrame(CSV.File(filePath, header=0));
+    if dataframe[1, 1] == "Year"
+        # Remove the header row
+        dataframe = dataframe[2:end, :]
+    end
     return dataframe;
 end
 
