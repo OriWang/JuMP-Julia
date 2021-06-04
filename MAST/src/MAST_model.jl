@@ -40,7 +40,7 @@ end
 
 
 ## MAST model
-using JuMP, GLPK, LinearAlgebra, DataFrames
+using JuMP, GLPK, LinearAlgebra, DataFrames, Gurobi
 
 # Controller flag parameters
 en_Uty_Strg = size(utility_storage_df)[1] >= 1;
@@ -204,7 +204,7 @@ end
 
 
 ## Model defination
-mast = Model(GLPK.Optimizer);
+mast = Model(Gurobi.Optimizer);
 # GLPK.set_obj_dir(mast, GLPK.interior)
 
 # Generator Decision variable
@@ -339,7 +339,7 @@ end
 );
 println("Line 337 finished");
 
-
+"""
 # Generator Ramping Constraints, using 'if' to express '==>'
 
 # @constraint(mast, ramp_up[g in G_Syn, t in 2:T],
@@ -404,6 +404,7 @@ for g in G_Syn, t in 1:MDT[g] - 1
         @constraint(mast, Status_var[g,t] <= Units[g] - sum(S_Down_var[g, t - t1] for t1 in 0:t - 1) - MDT_ini[g,t]);
     end
 end
+"""
 
 
 # Maximum limit on ON units
@@ -629,12 +630,17 @@ println("Line 620 completed");
 
 ## Optimize
 println("Calculating...");
+set_optimizer_attribute(mast, "Method", 2)
 optimize!(mast)
+
 # GLPK.glp_interior(mast)
-GLPK.glp_interior(mast)
+# GLPK.glp_interior(mast)
 # param = GLPK.glp_iptcp()
 # GLPK.glp_init_iptcp(param)
 # param.msg_lev = GLPK.GLP_MSG_ERR
 # GLPK.glp_interior(mast, param)
+
+
+
 
 print("The minimum cost is \$$(objective_value(mast))");
