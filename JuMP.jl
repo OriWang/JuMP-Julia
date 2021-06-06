@@ -1,4 +1,4 @@
-using JuMP, GLPK, LinearAlgebra, DataFrames, Gurobi
+using JuMP, GLPK, LinearAlgebra, DataFrames
 # Define some input data about the test system
 # Maximum power output of generators
 g_max = [1000, 1000];
@@ -26,14 +26,14 @@ f_max = [100, 1000];
 # In this cell we create function solve_ed, which solves the economic dispatch problem for a given set of input parameters.
 # function solve_ed(g_max, g_min, c_g, c_w, d, w_f, f_max)
     #Define the economic dispatch (ED) model
-ed = Model(Gurobi.Optimizer)
+ed = Model(GLPK.Optimizer)
 
 # Extract parameters
 g_num = length(g_max)
 w_num = length(w_f)
 
 # Define decision variables    
-@variable(ed, 0 <= g[i = 1:g_num] <= g_max[i], Int) # power output of generators
+@variable(ed, 0 <= g[i = 1:g_num] <= g_max[i]) # power output of generators
 @variable(ed, 0 <= w[i = 1:w_num] <= w_f[i]) # wind power injection
 @variable(ed, x >= 0)
 
