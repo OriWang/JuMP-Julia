@@ -22,7 +22,7 @@ function getDataFrame(testCase, metric)
     return dataframe;
 end
 
-function getPVTrace(trace; header)
+function getPVTrace(trace)
     filePath = loadTraceFolderPath;
     if trace == "NQ"
         filePath = joinpath(filePath,"Solar_Trace", "NQ Solar Real PV.csv");
@@ -67,6 +67,10 @@ function getPVTrace(trace; header)
     end
 
     dataframe = DataFrame(CSV.File(filePath, header=header));
+    if dataframe[1, 1] == "Year"
+        # Remove the header row
+        dataframe = dataframe[2:end, :]
+    end
     return dataframe;
 end
 

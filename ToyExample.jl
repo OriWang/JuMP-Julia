@@ -1,12 +1,11 @@
 using Printf
-using JuMP
-import Gurobi, Tulip
+using JuMP, Ipopt
 
 # Instantiate JuMP model
-lp = Model(Tulip.Optimizer)
+lp = Model(Ipopt.Optimizer)
 
 # Create variables
-@variable(lp, x >= 0)
+@variable(lp, x >= 0, Int)
 @variable(lp, y >= 0)
 
 # Add constraints

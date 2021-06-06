@@ -143,7 +143,6 @@ if Parameter.en_Uty_Strg
     temp2=[temp(1:end-1),'\n + sum{(s,n) in Storage_Node_links}',...
         '(Pwr_chrg_Strg_var[s,t] - Pwr_dchrg_Strg_var[s,t])'];
     CommandC(end,:)=cellstr([temp2,temp1]);
-
 end
 
 if Parameter.en_DR
