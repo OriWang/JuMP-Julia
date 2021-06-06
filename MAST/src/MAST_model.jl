@@ -2,18 +2,20 @@ include("data_reader.jl");
 include("supporting_functions.jl");
 include("constants.jl");
 
+# Uncomment the following lines for the first running.
+
 ## Add packages
-using Pkg
-Pkg.add("DataFrames")
-Pkg.add("XLSX")
-Pkg.add("CSV")
-Pkg.add("JuMP")
-Pkg.add("LinearAlgebra")
-Pkg.add("Gurobi")
-Pkg.add("GLPK")
-Pkg.add("Ipopt")
-Pkg.add("Statistics")
-Pkg.add("Plots")
+# using Pkg
+# Pkg.add("DataFrames")
+# Pkg.add("XLSX")
+# Pkg.add("CSV")
+# Pkg.add("JuMP")
+# Pkg.add("LinearAlgebra")
+# Pkg.add("Gurobi")
+# Pkg.add("GLPK")
+# Pkg.add("Ipopt")
+# Pkg.add("Statistics")
+# Pkg.add("Plots")
 
 using DataFrames
 using XLSX, CSV
@@ -37,9 +39,7 @@ oneDayLoadOfDemandTrace = Dict();
 current_day = [2020, 1, 2];
 
 for demandTraceCode in demandTraceList
-    # pathOf[demandTraceCode] = getDemandTrace(demandTraceCode);
     demandTraceDataframeMap[demandTraceCode] = getDemandTrace(demandTraceCode);
-    # oneDayLoadOfDemandTrace[demandTraceCode] = demandTraceDataframeMap[demandTraceCode][current_day, 4:end];
     oneDayLoadOfDemandTrace[demandTraceCode] = getDataForOneDay(current_day, demandTraceDataframeMap[demandTraceCode])
 end
 
@@ -52,10 +52,6 @@ en_Uty_Strg = false;
 en_DR_PV = false;
 en_DR_Strg = false;
 
-# en_Uty_Strg = true;
-# en_DR = true;
-# en_DR_PV = true;
-# en_DR_Strg = true;
 en_Type2 = count(i -> i == 2, generator_df[:, 18]) >= 1;
 en_Type3 = count(i -> i == 3, generator_df[:, 18]) >= 1;
 
@@ -343,32 +339,24 @@ end
 );
 
 # Generator Ramping Constraints, using 'if' to express '==>'
-
-# @constraint(mast, ramp_up[g in G_Syn, t in 2:T],
-#        (Ramp_up[g] < Max_pwr[g]) => {Pwr_Gen_var[g,t] - Pwr_Gen_var[g,t-1] <= Status_var[g,t] * Ramp_up[g]});
 for g in G_Syn, t in 2:T
     if Ramp_up[g] < Max_pwr[g]
         @constraint(mast, Pwr_Gen_var[g,t] - Pwr_Gen_var[g,t - 1] <= Status_var[g,t] * Ramp_up[g]);
     end
 end
 
-# @constraint(mast, ramp_up_initial[g in G_Syn],
-#        Ramp_up[g] >= Max_pwr[g] || Pwr_Gen_var[g,1] - Pwr_Gen_ini[g] <= Status_var[g,1]*Ramp_up[g]);
 for g in G_Syn
     if Ramp_up[g] < Max_pwr[g]
         @constraint(mast, Pwr_Gen_var[g,1] - Pwr_Gen_ini[g] <= Status_var[g,1] * Ramp_up[g]);
     end
 end
-# @constraint(mast, ramp_down[g in G_Syn, t in 2:T],
-#        Ramp_down[g] >= Max_pwr[g] || Pwr_Gen_var[g,t-1] - Pwr_Gen_var[g,t] <= Status_var[g,t-1]*Ramp_down[g]);
+
 for g in G_Syn, t in 2:T
     if Ramp_down[g] < Max_pwr[g]
         @constraint(mast, Pwr_Gen_var[g,t - 1] - Pwr_Gen_var[g,t] <= Status_var[g,t - 1] * Ramp_down[g]);
     end
 end
 
-# @constraint(mast, ramp_down_initial[g in G_Syn],
-#        Ramp_down[g] >= Max_pwr[g] || Pwr_Gen_ini[g] - Pwr_Gen_var[g,1] <= Status_ini[g]*Ramp_down[g]);
 for g in G_Syn
     if Ramp_down[g] < Max_pwr[g]
         @constraint(mast, Pwr_Gen_ini[g] - Pwr_Gen_var[g,1] <= Status_ini[g] * Ramp_down[g]);
@@ -628,30 +616,25 @@ println("Calculating...");
 set_optimizer_attribute(mast, "Method", 2)
 optimize!(mast);
 
-# GLPK.glp_interior(mast)
-# GLPK.glp_interior(mast)
-# param = GLPK.glp_iptcp()
-# GLPK.glp_init_iptcp(param)
-# param.msg_lev = GLPK.GLP_MSG_ERR
-# GLPK.glp_interior(mast, param)
-
 println("The minimum cost for $(current_day[1]).$(current_day[2]).$(current_day[3]) is \$$(objective_value(mast))");
 
+# Uncomment the following part to print the optimised variables
+
 ## results
-genName = generator_df[:, 1]
-meanUnitOn = (mean(Matrix(value.(Status_var)), dims=2))
-meanDispatch = mean(Matrix(value.(Pwr_Gen_var)), dims = 2)
-for i in 1:14 
-    print(@sprintf "%s\t\t%.2f\t\t%.2f\n" genName[i] meanDispatch[i] meanUnitOn[i])
-end
-println()
-lineName = branch_df[:, 1]
-meanPowerInline = mean(Matrix(value.(Pwr_line_var)), dims = 2)
-for i in ULine
-    if (i <= 20 || i >= 725)
-        print(@sprintf "%s\t%.2f\n" lineName[i] meanPowerInline[i])
-    end
-end
+# genName = generator_df[:, 1]
+# meanUnitOn = (mean(Matrix(value.(Status_var)), dims=2))
+# meanDispatch = mean(Matrix(value.(Pwr_Gen_var)), dims = 2)
+# for i in 1:14 
+#     print(@sprintf "%s\t\t%.2f\t\t%.2f\n" genName[i] meanDispatch[i] meanUnitOn[i])
+# end
+# println()
+# lineName = branch_df[:, 1]
+# meanPowerInline = mean(Matrix(value.(Pwr_line_var)), dims = 2)
+# for i in ULine
+#     if (i <= 20 || i >= 725)
+#         print(@sprintf "%s\t%.2f\n" lineName[i] meanPowerInline[i])
+#     end
+# end
 
 
 
